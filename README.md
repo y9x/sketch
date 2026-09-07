@@ -82,7 +82,7 @@ stat -c '%y %n' src/filters.ts dist/sketch.DEV.user.js
 Dev builds log their progress. A healthy load looks like:
 
 ```
-[sketch] TextDecoder constructor replaced
+[sketch] TextDecoder.prototype.decode hooked
 [DEV] patching io/game/render/overlay/settings worked: true
 [sketch] intercepted game source: 8669826 chars
 [sketch] captured overlay
@@ -102,10 +102,9 @@ Krunker ships its client as an obfuscated bundle that is decompressed and
 compiled inside a WASM loader, so there is no plain `<script>` to intercept.
 Sketch works around that in five stages:
 
-1. **Intercept** — `src/dogehook.ts` replaces `window.TextDecoder` and overrides
-   `decode` per instance. When the loader decodes something larger than
-   `GAME_SOURCE_MIN` (5,000,000 chars), that is the game source. The hook then
-   uninstalls itself.
+1. **Intercept** — `src/dogehook.ts` hooks `TextDecoder.prototype.decode`.
+   When the loader decodes something larger than `GAME_SOURCE_MIN` (5,000,000
+   chars), that is the game source. The hook then uninstalls itself.
 2. **Fetch and verify** — `src/KrunkBox.ts` and `src/inject.ts` retrieve the
    source and the `renamed` globals map from krunkbox and check version
    compatibility.
@@ -151,8 +150,8 @@ src/
   presets/        rage / legit config presets
   krunker/        hand-written type definitions for game objects
   sketchConfig.ts persisted settings
-build.js          esbuild config + dev server
-meta.json         userscript header (meta.dev.json for dev builds)
+scripts/          build + dev server (build.js) and loader tooling (scripts/loader/)
+meta/             userscript headers (sketch.json, loader.json, *.dev.json)
 skyboxes/         bundled skybox assets
 ```
 

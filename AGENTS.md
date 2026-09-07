@@ -14,11 +14,14 @@ see "Finding patch anchors".
 
 ## Entrypoints
 
-- `npm run build` → `node ./build.js` (esbuild → `dist/sketch.user.js`)
+- `npm run build` → `node ./scripts/build.js` (esbuild → `dist/sketch.user.js`)
 - `npm run watch` → same, `--watch`
 - `npm run build:dev` / `npm run watch:dev` → `--dev`; also emits
   `dist/sketch.DEV.user.js` and serves it on `http://127.0.0.1:8080/`
 - `npm run check` → `tsc --noEmit`. **There is no `typecheck` script.**
+- `npm run verify:loader` / `verify:derive` / `verify:signature` → loader
+  harnesses in `scripts/loader/`. The derive and signature ones are bundled by
+  `scripts/loader/run-bundled.mjs` first because they import `.ts` / `.wasm`.
 
 The dev watcher hot-rebuilds, so you do not need to restart it after editing
 `src/`. It has been OOM-killed (exit 137) and has also gone *deaf* while still
@@ -49,8 +52,7 @@ Read these five files in order; they are the whole load path.
    char obfuscated bundle. Also holds all runtime state, capture callbacks, and
    hook arrays. The biggest and most important file in the repo.
 4. **`src/dogehook.ts`** — how we actually obtain the source. Krunker compiles
-   the bundle inside WASM, so we replace **`window.TextDecoder`** (the static
-   property, *not* the prototype) and override `decode` per instance. It
+   the bundle inside WASM, so we hook **`window.TextDecoder.prototype.decode`**. It
    self-uninstalls on first hit.
 5. **`src/hook.ts`** — `mirrorAttributes` / `setNativeFunction` /
    `hookContext`, the `Function.prototype.toString` spoofing layer.
@@ -189,3 +191,4 @@ The page realm matters: a cross-realm `ArrayBuffer` fails msgpack's
 - `src/KrunkBox.ts` — the krunkbox HTTP client.
 - `src/util.ts` — `waitFor(predicate, interval?, timeout?)`. `timeout` defaults
   to `Infinity` and rejects when exceeded.
+- `src/loader/LOADER.md` — technical reverse engineering analysis of `loader.wasm` and `loader.mjs` (Emscripten / Crypto++ runtime and bundle decryption pipeline).

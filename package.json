@@ -6,14 +6,18 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "node ./build.js",
-    "watch": "node ./build.js --watch",
+    "build": "node ./scripts/build.js",
+    "watch": "node ./scripts/build.js --watch",
     "check": "tsc --noEmit",
-    "build:dev": "node ./build.js --dev",
-    "watch:dev": "node ./build.js --dev --watch"
+    "build:dev": "node ./scripts/build.js --dev",
+    "watch:dev": "node ./scripts/build.js --dev --watch",
+    "verify:loader": "node ./scripts/loader/verify-loader.mjs",
+    "verify:signature": "node ./scripts/loader/run-bundled.mjs verify-signature",
+    "verify:derive": "node ./scripts/loader/run-bundled.mjs verify-derive"
   },
   "type": "module",
   "dependencies": {
+    "brotli-dec-wasm": "^2.3.2",
     "jsonpack": "^1.1.5",
     "msgpackr": "^1.11.9",
     "preact": "^10.26.4"
