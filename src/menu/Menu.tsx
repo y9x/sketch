@@ -29,6 +29,7 @@ import { Slider } from "../krunker-ui/components/Slider";
 import { waitFor } from "../util";
 import { MapData } from "../krunker/GameMap";
 import { rageConfig } from "../presets/rage";
+import { legitConfig } from "../presets/legit";
 import { useEffect, useState } from "preact/hooks";
 
 declare global {
@@ -114,6 +115,7 @@ function stealActiveMap() {
 
 const presets: Record<string, Partial<SketchConfig>> = {
   default: sketchConfig.defaultConfig,
+  legit: legitConfig,
   rage: rageConfig,
 };
 
@@ -568,6 +570,7 @@ export default function Menu() {
               style="margin-left:0px;font-size:14px"
             >
               <option value="default">Default</option>
+              <option value="legit">Legit</option>
               <option value="rage">Rage</option>
               <option value="custom">Custom</option>
             </select>

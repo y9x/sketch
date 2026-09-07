@@ -1,4 +1,16 @@
+# dependencies
 /node_modules
+
+# build output
 /dist
+
+# secrets
 /.env*
-/skyboxes
+
+# captured runtime logs
+*.log
+
+# game payloads fetched/extracted by scripts/loader (regenerable, huge)
+/core-dat-files/
+/core-data/
+/data/

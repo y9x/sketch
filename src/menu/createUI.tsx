@@ -40,17 +40,33 @@ export function updateSketchMenuButton() {
   sketchMenuButton.style.display = sketchConfig.get("menuButton") ? "" : "none";
 }
 
-export async function sketchButton() {
+let created = false;
+function createSketchMenuItem(menuItemContainer: HTMLDivElement) {
+  if (created) return;
+  created = true;
+  const item = document.createElement("div");
+  item.className = "menuItem svelte-fgmdj8";
+  item.addEventListener("mouseenter", () => playTick());
+  item.addEventListener("click", () => playSelect());
+  const tool = item.attachShadow({ mode: "closed" });
+  tool.innerHTML = `<link rel="stylesheet" href="https://krunker.io/css/material-icons-outlined.css?build=zVvup"><!----><span class="material-icons-outlined menuItemIcon svelte-fgmdj8" style="color: #fbff00">edit</span><!----> <div class="menuItemTitle svelte-fgmdj8">Sketch<!----><!----></div>`;
+  menuItemContainer.appendChild(item);
+
+  sketchMenuButton = item;
+  sketchMenuButton.addEventListener("click", sketchWindow);
+  updateSketchMenuButton();
+}
+
+export function sketchButton() {
+  const existing = document.querySelector<HTMLDivElement>("#menuItemContainer");
+  if (existing) createSketchMenuItem(existing);
+
+  const observer = new MutationObserver(() => {
     const menuItemContainer =
       document.querySelector<HTMLDivElement>("#menuItemContainer");
-    // const id = "sketchMenu";
-    const id = "m" + Math.random().toString(36).slice(2);
-    if (menuItemContainer)
-      menuItemContainer.innerHTML += `<div class="menuItem" onmouseenter="playTick()" onclick="playSelect()" id="${id}"><span class="material-icons-outlined menBtnIcn" style="color: #fbff00">edit</span><div class="menuItemTitle">Sketch</div></div>`;
-    sketchMenuButton = document.getElementById(id) as HTMLDivElement;
-    sketchMenuButton.removeAttribute("id");
-    sketchMenuButton.addEventListener("click", sketchWindow);
-    updateSketchMenuButton();
+    if (menuItemContainer) createSketchMenuItem(menuItemContainer);
+  });
+  observer.observe(document, { childList: true, subtree: true });
 
   keyListeners.push((event, code, down) => {
     const menuKey = sketchConfig.get("menuKey");

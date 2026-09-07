@@ -7,16 +7,14 @@ import {
   sketchVersion,
   supportedGame,
 } from "./consts";
-import { afterGame, beforeGame, hook } from "./filters";
-import { getInit } from "./inject";
-import { gameLoad } from "./dogehook";
+import { afterGame, hook, runBeforeGameOnce, onGameHooks } from "./filters";
+import { prepareSource } from "./inject";
+import { gameLoad, setSourceInterceptor, setInjectValues } from "./dogehook";
 import sketchConfig, { initSketchConfig } from "./sketchConfig";
 import { initPlayerSpoofConfig } from "./playerSpoofConfig";
 import { begToken, showUpdated, showFutile, panic } from "./anxiety";
 import { sketchButton } from "./menu/createUI";
 import "./cheats";
-
-const loadGameNormally = () => {};
 
 if (isKrunker) {
   main().catch((err) => {
@@ -24,13 +22,9 @@ if (isKrunker) {
     if (sketchConfig.get("silentFail")) return;
     panic(err.stack);
   });
-}
-// else if (location.origin === new URL(apiURL).origin) {
-else {
+} else {
   const sauce = location.pathname.indexOf("/key/");
   if (sauce !== -1) {
-    // console.log("found key in url");
-    // steal it and redirect to krunkar
     const key = location.pathname.slice(sauce + "/key/".length);
     initTokenConfig().then(() => {
       tokenConfig.set("keyFromUrl", key);
@@ -61,6 +55,37 @@ function checkHash() {
 
 declare function enterGame(): void;
 
+declare global {
+  var Howler: any;
+}
+
+function buildPrologue(injectArgs: Record<string, any>): string {
+  const lines: string[] = [
+    'var __si = (typeof __sketchInject !== "undefined" ? __sketchInject : (typeof top !== "undefined" && top.__sketchInject) || (typeof parent !== "undefined" && parent.__sketchInject) || (typeof window !== "undefined" && window.__sketchInject));',
+  ];
+  if (isDevelopment)
+    lines.push(
+      'try { console.log("[sketch] prologue: __si =", !!__si, "beforeGame:", typeof (__si && __si.beforeGame)); } catch(e) {}',
+    );
+  for (const key of Object.keys(injectArgs)) {
+    if (key === "WP_MMToken") {
+      // The loader still calls this body with the real matchmaking token as its
+      // first argument; krunkbox's wrapper prologue otherwise clobbers it.
+      lines.push(
+        `var ${key} = (typeof arguments !== "undefined" && arguments.length && typeof arguments[0] === "string" && arguments[0]) || __si[${JSON.stringify(key)}];`,
+      );
+      if (isDevelopment)
+        lines.push(
+          `try { console.log("[sketch] mmToken:", ${key} === __si[${JSON.stringify(key)}] ? "PLACEHOLDER" : "real (" + ${key}.length + " chars)"); } catch(e) {}`,
+        );
+      continue;
+    }
+    lines.push(`var ${key} = __si[${JSON.stringify(key)}];`);
+  }
+  lines.push('if (__si && __si.beforeGame) __si.beforeGame();');
+  return lines.join('\n') + '\n';
+}
+
 async function main() {
   await initSketchConfig();
   await initPlayerSpoofConfig();
@@ -71,12 +96,12 @@ async function main() {
   const version = await KrunkBox.sketchVersion(sketchVersion, supportedGame);
 
   if (version.outdated) {
-    if (sketchConfig.get("silentFail")) return loadGameNormally();
+    if (sketchConfig.get("silentFail")) return;
     return showUpdated(version);
   }
 
   if (!version.sketchUpdated) {
-    if (sketchConfig.get("silentFail")) return loadGameNormally();
+    if (sketchConfig.get("silentFail")) return;
     return showFutile(version);
   }
 
@@ -102,39 +127,76 @@ async function main() {
 
   while (true) {
     if (!token) {
-      // if (sketchConfig.get("silentFail")) return fetchWASM();
-      token = await begToken();
+      const t = await begToken();
+      if (!t) return;
+      token = t;
       tokenConfig.set("token", token);
     }
 
-    const krunkbox = new KrunkBox(token);
-    const game = await getInit(krunkbox, hook);
+    const krunkbox = new KrunkBox(token!);
+    const prepared = await prepareSource(krunkbox, hook);
 
     // needs to reload to use token
-    if (!game) {
-      // console.log("refresh to utilize token");
+    if (!prepared) {
+      if (isDevelopment) console.log("refresh to utilize token");
       return;
     }
 
-    if (!game.success) {
-      if (isDevelopment) console.error("init:", game);
+    if (!prepared.success) {
+      if (isDevelopment) console.error("init:", prepared);
       tokenConfig.delete("token");
-      // if (sketchConfig.get("silentFail")) return fetchWASM();
       token = undefined;
       continue;
     }
 
-    await gameLoad;
-    for (const bg of beforeGame) bg();
-    game.init();
-    for (const ag of afterGame) ag();
-    sketchButton();
+    const { source, injectArgs } = prepared;
 
-    setTimeout(() => {
-      setInterval(() => {
-        if (sketchConfig.get("autoSpawn")) enterGame();
-      }, 100);
-    }, 1e3);
+    // Expose runtime objects (fakeObj, data, WP_MMToken) to iframe contexts.
+    // No afterGame here: it would double-mount the button and duplicate the
+    // autoSpawn interval alongside onGameHooks.
+    setInjectValues({
+      ...injectArgs,
+      beforeGame: runBeforeGameOnce,
+    });
+
+    // afterGame runs here rather than from a source epilogue: the wrapper
+    // returns long before the game finishes async init.
+    onGameHooks.push(() => {
+      // Isolated so one failing hook can't stop the button from mounting.
+      for (const ag of afterGame) {
+        try {
+          ag();
+        } catch (e) {
+          if (isDevelopment) console.error("[sketch] afterGame hook failed:", e);
+        }
+      }
+
+      try {
+        sketchButton();
+      } catch (e) {
+        if (isDevelopment) console.error("[sketch] sketchButton failed:", e);
+      }
+
+      setTimeout(() => {
+        setInterval(() => {
+          if (sketchConfig.get("autoSpawn")) enterGame();
+        }, 100);
+      }, 1e3);
+    });
+
+    const prologue = buildPrologue(injectArgs);
+
+    setSourceInterceptor((_url, _responseText) => {
+      if (isDevelopment) console.log("[sketch] intercepted XHR source, url:", _url.substring(0, 100), "original:", _responseText.length, "patched:", source.length);
+      return prologue + source;
+    });
+
+    if (isDevelopment) console.log("[DEV] interceptor registered, waiting for loader");
+
+    // The loader script will run naturally — WASM will create an iframe
+    // and call new Function() on it, which our proxy intercepts
+    await gameLoad;
+    if (isDevelopment) console.log("[DEV] loader script detected, game will compile via WASM");
 
     break;
   }

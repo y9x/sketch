@@ -16,14 +16,17 @@ export function random(min: number, max: number, decimal = false) {
 type TrueLike<T> = Exclude<NonNullable<T>, false>;
 
 /**
- * Poll a condition every x MS.
+ * Poll a condition every x MS. Pass a timeout so a condition that never turns
+ * true can't leave an interval polling for the rest of the session.
  */
 export function waitFor<T>(
   check: () => T,
-  interval = 50
+  interval = 50,
+  timeout = Infinity
 ): Promise<TrueLike<T>> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let set: ReturnType<typeof setInterval>;
+    const deadline = Date.now() + timeout;
 
     const run = () => {
       try {
@@ -37,6 +40,13 @@ export function waitFor<T>(
         }
       } catch (err) {
         if (isDevelopment) console.error(err);
+      }
+
+      if (Date.now() > deadline) {
+        if (set) clearInterval(set);
+        reject(new Error("waitFor timed out"));
+
+        return true;
       }
     };
 

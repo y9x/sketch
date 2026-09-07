@@ -57,7 +57,7 @@ export function getExposedWindow() {
 export { isNode };
 
 export const isKrunker =
-  window === top &&
+  getExposedWindow() === getExposedWindow().top &&
   ["proxy.krunk.cc", "krunker.io"].includes(location.hostname);
 
 /*

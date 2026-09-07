@@ -41,5 +41,5 @@ export const rageConfig: Partial<SketchConfig> = {
   keybindOverlay: false,
   healthBars: false,
   thirdPerson: true,
-  spinbot: "visual",
+  spinbot: true,
 };

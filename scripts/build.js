@@ -16,26 +16,47 @@ process.env.NODE_ENV = isDevelopment ? "development" : "production";
 
 expand(config());
 
+const root = new URL("../", import.meta.url);
+const fromRoot = (p) => fileURLToPath(new URL(p, root));
+
 /**
- * @type {import("./meta.json")}
+ * @type {import("../meta/sketch.json")}
  */
 const sketchMeta = JSON.parse(
-  await readFile(new URL("meta.json", import.meta.url), "utf-8")
+  await readFile(new URL("meta/sketch.json", root), "utf-8")
 );
 
 /**
- * @type {import("./meta.dev.json")}
+ * @type {import("../meta/loader.dev.json")}
+ */
+let loaderDevMeta = {};
+try {
+  loaderDevMeta = JSON.parse(
+    await readFile(new URL("meta/loader.dev.json", root), "utf-8")
+  );
+} catch {}
+
+/**
+ * @type {import("../meta/loader.json")}
+ */
+let loaderMeta = {};
+try {
+  loaderMeta = JSON.parse(
+    await readFile(new URL("meta/loader.json", root), "utf-8")
+  );
+} catch {}
+
+/**
+ * @type {import("../meta/sketch.dev.json")}
  */
 const sketchDevMeta = JSON.parse(
-  await readFile(new URL("meta.dev.json", import.meta.url), "utf-8")
+  await readFile(new URL("meta/sketch.dev.json", root), "utf-8")
 );
 
 /**
- * @type {import("./package.json")}
+ * @type {import("../package.json")}
  */
-const pkg = JSON.parse(
-  await readFile(new URL("package.json", import.meta.url), "utf-8")
-);
+const pkg = JSON.parse(await readFile(new URL("package.json", root), "utf-8"));
 
 process.env.SKETCH_VERSION = pkg.version;
 
@@ -54,10 +75,34 @@ const envReplacements = {
 
 console.log(envReplacements);
 
-const mainOut = fileURLToPath(new URL("dist/sketch.user.js", import.meta.url));
+const mainOut = fromRoot("dist/sketch.user.js");
+const loaderOut = fromRoot("dist/loader.user.js");
+
+const loaderMain = await context({
+  entryPoints: [fromRoot("src/loader/entry.ts")],
+  format: "iife",
+  loader: { ".bin": "base64", ".wasm": "base64" },
+  sourcemap: isDebug ? "external" : false,
+  define: envReplacements,
+  outfile: loaderOut,
+  bundle: true,
+  minify: !isDebug,
+  platform: "browser",
+  banner: {
+    js:
+      userscriptMetadataGenerator({
+        ...loaderMeta,
+        version: pkg.version,
+      }).replace("// @run-at", "// @noframes\n// @run-at") + "\n/*eslint-disable*/",
+  },
+});
+
+await loaderMain.rebuild();
+await loaderMain.dispose();
+console.log("produced", loaderOut);
 
 const sketchMain = await context({
-  entryPoints: ["./src/index.ts"],
+  entryPoints: [fromRoot("src/index.ts")],
   format: "iife",
   sourcemap: isDebug ? "external" : false,
   define: envReplacements,
@@ -98,11 +143,9 @@ const sketchMain = await context({
 console.log("produced", mainOut);
 
 if (process.argv.includes("--watch")) {
-  const devOut = fileURLToPath(
-    new URL("dist/sketch.DEV.user.js", import.meta.url)
-  );
+  const devOut = fromRoot("dist/sketch.DEV.user.js");
   await build({
-    entryPoints: ["./src/dev.ts"],
+    entryPoints: [fromRoot("src/dev.ts")],
     format: "iife",
     define: envReplacements,
     outfile: devOut,
@@ -122,10 +165,32 @@ if (process.argv.includes("--watch")) {
 
   console.log("produced", devOut);
 
+  const loaderDevOut = fromRoot("dist/loader.DEV.user.js");
+  await build({
+    entryPoints: [fromRoot("src/loader/entry.dev.ts")],
+    format: "iife",
+    define: envReplacements,
+    outfile: loaderDevOut,
+    bundle: true,
+    platform: "browser",
+    banner: {
+      js:
+        userscriptMetadataGenerator({
+          author: pkg.author,
+          description: pkg.description,
+          version: pkg.version,
+          ...loaderMeta,
+          ...loaderDevMeta,
+        }) + "\n",
+    },
+  });
+  console.log("produced", loaderDevOut);
+
+
   const server = http.createServer();
   server.on("request", (req, res) =>
     send(req, parseUrl(req).pathname, {
-      root: "dist",
+      root: fromRoot("dist"),
     }).then(({ statusCode, headers, stream }) => {
       headers["access-control-request-method"] = "GET, POST, OPTIONS";
       headers["access-control-allow-origin"] = "https://krunker.io";
@@ -146,7 +211,7 @@ if (process.argv.includes("--watch")) {
 
   server.listen({
     host: "127.0.0.1",
-    port: 8080,
+    port: process.env.SKETCH_DEV_API_PORT || 8080,
   });
 
   await sketchMain.watch();
