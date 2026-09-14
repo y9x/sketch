@@ -77,17 +77,35 @@ console.log(envReplacements);
 
 const mainOut = fromRoot("dist/sketch.user.js");
 const loaderOut = fromRoot("dist/loader.user.js");
+const loaderBrowser = {
+  alias: { path: "path-browserify", "node:path": "path-browserify" },
+  external: ["isolated-vm", "node:fs/promises"],
+  loader: { ".bin": "base64", ".wasm": "base64" },
+  define: { ...envReplacements, process: '{"env":{}}' },
+  bundle: true,
+  platform: "browser",
+};
+
+const loaderWorker = await build({
+  ...loaderBrowser,
+  entryPoints: [fromRoot("src/loader/worker.ts")],
+  format: "iife",
+  minify: !isDebug,
+  write: false,
+});
+const loaderWorkerSource = loaderWorker.outputFiles[0].text;
 
 const loaderMain = await context({
+  ...loaderBrowser,
   entryPoints: [fromRoot("src/loader/entry.ts")],
   format: "iife",
-  loader: { ".bin": "base64", ".wasm": "base64" },
   sourcemap: isDebug ? "external" : false,
-  define: envReplacements,
+  define: {
+    ...loaderBrowser.define,
+    __LOADER_WORKER_SOURCE__: JSON.stringify(loaderWorkerSource),
+  },
   outfile: loaderOut,
-  bundle: true,
   minify: !isDebug,
-  platform: "browser",
   banner: {
     js:
       userscriptMetadataGenerator({
@@ -142,7 +160,7 @@ const sketchMain = await context({
 
 console.log("produced", mainOut);
 
-if (process.argv.includes("--watch")) {
+if (isDevelopment) {
   const devOut = fromRoot("dist/sketch.DEV.user.js");
   await build({
     entryPoints: [fromRoot("src/dev.ts")],
@@ -185,6 +203,12 @@ if (process.argv.includes("--watch")) {
     },
   });
   console.log("produced", loaderDevOut);
+
+  if (!process.argv.includes("--watch")) {
+    await sketchMain.rebuild();
+    await sketchMain.dispose();
+    process.exit(0);
+  }
 
 
   const server = http.createServer();

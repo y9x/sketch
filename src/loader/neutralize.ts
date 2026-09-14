@@ -132,6 +132,7 @@ export function neutralize(): Interception {
     try {
       win.sessionStorage.setItem(BYPASS_KEY, "1")
       log.warn("reloading so the stock loader can take over")
+      debugger;
       win.location.reload()
     } catch (error) {
       log.error("could not reload for the stock loader:", String(error))

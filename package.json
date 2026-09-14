@@ -11,6 +11,7 @@
     "check": "tsc --noEmit",
     "build:dev": "node ./scripts/build.js --dev",
     "watch:dev": "node ./scripts/build.js --dev --watch",
+    "update:loader": "node ./scripts/loader/update-loader.mjs && npm run build:dev",
     "verify:loader": "node ./scripts/loader/verify-loader.mjs",
     "verify:signature": "node ./scripts/loader/run-bundled.mjs verify-signature",
     "verify:derive": "node ./scripts/loader/run-bundled.mjs verify-derive"
@@ -20,7 +21,9 @@
     "brotli-dec-wasm": "^2.3.2",
     "jsonpack": "^1.1.5",
     "msgpackr": "^1.11.9",
-    "preact": "^10.26.4"
+    "path-browserify": "^1.0.1",
+    "preact": "^10.26.4",
+    "webcrack": "^2.16.0-beta.1"
   },
   "devDependencies": {
     "@fastify/send": "^4.0.0",

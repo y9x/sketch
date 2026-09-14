@@ -52,6 +52,8 @@ the build rather than producing a broken script. Production values can live in
 | `npm run watch` | same, rebuilding on change |
 | `npm run build:dev` | dev build, also emits `dist/sketch.DEV.user.js` |
 | `npm run watch:dev` | dev build + watch + dev server on `http://127.0.0.1:8080/` |
+| `npm run update:loader` | capture the live game, refresh the loader key, and rebuild |
+| `npm run verify:loader` | decrypt and compile the currently bundled loader fixture |
 | `npm run check` | `tsc --noEmit` |
 
 Builds default to development. Set `NODE_ENV=production` for a release build,

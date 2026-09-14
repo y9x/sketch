@@ -6,10 +6,12 @@ import { brotli_dec, initSync } from "brotli-dec-wasm/web";
 
 const fromRoot = (p) => fileURLToPath(new URL(`../../${p}`, import.meta.url));
 
-const BUILD = "j5XbE";
 const sha = (b) => createHash("sha256").update(b).digest("hex");
 
 const ks = readFileSync(fromRoot("src/loader/keystream.bin"));
+const metadata = readFileSync(fromRoot("src/loader/keystream.ts"), "utf8");
+const BUILD = /KEYSTREAM_BUILD = "([^"]+)"/.exec(metadata)?.[1];
+if (!BUILD) throw new Error("could not read KEYSTREAM_BUILD");
 
 const splitDirs = ["core-dat-files", "data", "core-data"];
 let parts = null;
@@ -44,11 +46,8 @@ full[full.length - 1] = 0x0a;
 const source = new TextDecoder("utf-8").decode(full);
 
 console.log("source utf8 =", full.length, "chars", source.length);
-
-const manifest = JSON.parse(
-  readFileSync("/home/user/src/krunkbox/bin/game.manifest.json", "utf-8")
-);
-console.log("EXACT SOURCE MATCH =", source === manifest.source);
+if (source.length < 5_000_000) throw new Error("decoded source is too small");
+new Function(source);
 
 const IDENT_RE = /\b[0-9a-f]{20}\b/g;
 const CALLBACK_RE = /'function'\s*==\s*typeof\s+([0-9a-f]{20})\s*&&\s*\1\s*\(/;
@@ -60,8 +59,5 @@ const cb = CALLBACK_RE.exec(source);
 const callback = cb ? cb[1] : seen[1];
 const token = seen[0] === callback ? seen[1] : seen[0];
 console.log("recovered   =", JSON.stringify([token, callback]));
-console.log("manifest    =", JSON.stringify(manifest.params));
-console.log(
-  "PARAMS MATCH =",
-  token === manifest.params[0] && callback === manifest.params[1]
-);
+if (!token || !callback) throw new Error("could not recover wrapper params");
+console.log(`VERIFIED BUILD ${BUILD}`);

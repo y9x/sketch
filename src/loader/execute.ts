@@ -1,16 +1,31 @@
 import { pageWindow } from "./env"
 import { diag, log } from "./log"
-import { recoverParams, recoverRenamed } from "./params"
+import {
+  type GameParams,
+  type RenamedAlias,
+  recoverParams,
+  recoverRenamed,
+} from "./params"
 
-export function executeGame(source: string, token: string): void {
-  const { token: tokenParam, callback: callbackParam } = recoverParams(source)
+export type ExecutionMetadata = {
+  params: GameParams
+  renamed: RenamedAlias[]
+}
+
+export function executeGame(
+  source: string,
+  token: string,
+  metadata?: ExecutionMetadata
+): void {
   const win = pageWindow()
+  const { token: tokenParam, callback: callbackParam } =
+    metadata?.params || recoverParams(source)
   const globals = win as unknown as Record<string, unknown>
 
   // The bundle reads renamed globals as explicit window properties and later
   // reassigns them, so they must live on window rather than be parameters --
   // a parameter would shadow the game's own reassignment.
-  const renamed = recoverRenamed(source, win)
+  const renamed = metadata?.renamed || recoverRenamed(source, win)
   for (const alias of renamed) {
     const had = typeof globals[alias.name]
     globals[alias.name] = globals[alias.global]

@@ -2,8 +2,8 @@ import keystreamB64 from "./keystream.bin"
 import { decodeBase64 } from "./base64"
 
 // The keystream is build-specific: core.dat from any other build will not decrypt.
-export const KEYSTREAM_BUILD = "j5XbE"
-export const KEYSTREAM_LENGTH = 1835652
+export const KEYSTREAM_BUILD = "xmXDX"
+export const KEYSTREAM_LENGTH = 1837454
 
 let cached: Uint8Array | null = null
 

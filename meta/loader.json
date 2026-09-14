@@ -11,6 +11,12 @@
   "run-at": "document-start",
   "grant": [
     "unsafeWindow",
-    "GM_xmlhttpRequest"
+    "GM_xmlhttpRequest",
+    "GM_getValue",
+    "GM_setValue",
+    "GM_deleteValue",
+    "GM.getValue",
+    "GM.setValue",
+    "GM.deleteValue"
   ]
 }

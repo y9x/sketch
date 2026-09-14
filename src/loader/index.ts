@@ -1,34 +1,244 @@
-import { brotliDecompress } from "./brotli"
 import { discoverKeystream, logDeriveReport } from "./derive"
 import { pageWindow } from "./env"
-import { executeGame } from "./execute"
-import { knownBuilds, resolveKeystream, xorDecrypt } from "./keystreams"
+import { type ExecutionMetadata, executeGame } from "./execute"
+import { knownBuilds, resolveKeystream } from "./keystreams"
 import { diag, log, setStage } from "./log"
 import { BYPASS_KEY, neutralize } from "./neutralize"
-import { applyPatches } from "./patch"
+import { type GameParams, recoverRenamed } from "./params"
 import { fetchLoaderWasm, scanWasmBytes } from "./signature"
 import { fetchSplits } from "./splits"
 import { fetchToken } from "./token"
 
-const LF = 0x0a
+declare const __LOADER_WORKER_SOURCE__: string
 
-// The real source is ~10.7 MB; anything far short of that means the pipeline
-// produced garbage even though brotli did not complain.
-const MIN_SOURCE_BYTES = 5_000_000
+const CACHE_REVISION = "raw-v1"
+const CACHE_PREFIX = "sketch.loader.source"
+const CACHE_POINTER = `${CACHE_PREFIX}.current`
 
-// The encrypted payload omits the leading and trailing newline of the source.
-function reassemble(body: Uint8Array): string {
-  const full = new Uint8Array(body.length + 2)
-  full[0] = LF
-  full.set(body, 1)
-  full[full.length - 1] = LF
-  return new TextDecoder("utf-8").decode(full)
+type CachedGame = {
+  build: string
+  hash: string
+  rawSource: string
+  sourceBytes: number
+  metadata: ExecutionMetadata
+}
+
+type WorkerResult = {
+  type: "result"
+  hash: string
+  rawSource: string
+  sourceBytes: number
+  params: GameParams
+}
+
+type WorkerPatched = { type: "patched"; source: string }
+
+type WorkerError = { type: "error"; error: string }
+type WorkerSandbox = { type: "sandbox"; id: number; code: string }
+
+type StorageBridge = {
+  get?: <T>(key: string, fallback: T) => T | Promise<T>
+  set?: (key: string, value: unknown) => void | Promise<void>
+  delete?: (key: string) => void | Promise<void>
+}
+
+function storageBridge(): StorageBridge | undefined {
+  return (
+    globalThis as typeof globalThis & {
+      __SKETCH_LOADER_STORAGE__?: StorageBridge
+    }
+  ).__SKETCH_LOADER_STORAGE__
+}
+
+function evaluateSandbox(code: string): unknown {
+  const frame = document.createElement("iframe")
+  frame.style.display = "none"
+  document.documentElement.appendChild(frame)
+  try {
+    return (frame.contentWindow as typeof globalThis | null)?.eval(code)
+  } finally {
+    frame.remove()
+  }
+}
+
+function workerMessage<T>(worker: Worker): Promise<T> {
+  return new Promise((resolve, reject) => {
+    worker.onmessage = (event: MessageEvent<T | WorkerError | WorkerSandbox>) => {
+      if ((event.data as WorkerSandbox).type === "sandbox") {
+        const request = event.data as WorkerSandbox
+        try {
+          worker.postMessage({
+            type: "sandbox-result",
+            id: request.id,
+            value: evaluateSandbox(request.code),
+          })
+        } catch (error) {
+          worker.postMessage({
+            type: "sandbox-result",
+            id: request.id,
+            error: error instanceof Error ? error.stack || error.message : String(error),
+          })
+        }
+        return
+      }
+      if ((event.data as WorkerError).type === "error") {
+        reject(new Error((event.data as WorkerError).error))
+      } else {
+        resolve(event.data as T)
+      }
+    }
+    worker.onerror = (event) => reject(new Error(event.message))
+  })
+}
+
+function cacheKey(build: string): string {
+  return `${CACHE_PREFIX}.${CACHE_REVISION}.${build}`
+}
+
+async function storageGet<T>(key: string, fallback: T): Promise<T> {
+  const bridge = storageBridge()
+  if (bridge?.get) return bridge.get(key, fallback)
+  if (typeof GM_getValue === "function") return GM_getValue<T>(key, fallback)
+  if (typeof GM !== "undefined" && typeof GM.getValue === "function") {
+    return GM.getValue<T>(key, fallback)
+  }
+  throw new Error("Tampermonkey storage API unavailable; reinstall the DEV userscript")
+}
+
+async function storageSet(key: string, value: unknown): Promise<void> {
+  const bridge = storageBridge()
+  if (bridge?.set) {
+    await bridge.set(key, value)
+    return
+  }
+  if (typeof GM_setValue === "function") {
+    GM_setValue(key, value)
+    return
+  }
+  if (typeof GM !== "undefined" && typeof GM.setValue === "function") {
+    await GM.setValue(key, value)
+    return
+  }
+  throw new Error("Tampermonkey storage API unavailable; reinstall the DEV userscript")
+}
+
+async function storageDelete(key: string): Promise<void> {
+  const bridge = storageBridge()
+  if (bridge?.delete) {
+    await bridge.delete(key)
+    return
+  }
+  if (typeof GM_deleteValue === "function") {
+    GM_deleteValue(key)
+    return
+  }
+  if (typeof GM !== "undefined" && typeof GM.deleteValue === "function") {
+    await GM.deleteValue(key)
+  }
+}
+
+async function readCachedGame(build: string): Promise<CachedGame | null> {
+  try {
+    const cached = await storageGet<CachedGame | null>(cacheKey(build), null)
+    if (
+      cached?.build === build &&
+      typeof cached.hash === "string" &&
+      cached.hash.length === 64 &&
+      typeof cached.rawSource === "string" &&
+      cached.rawSource.length > 5_000_000 &&
+      cached.metadata?.params?.token &&
+      cached.metadata.params.callback &&
+      Array.isArray(cached.metadata.renamed)
+    ) {
+      log.info(`raw source cache hit: build ${build}`)
+      return cached
+    }
+  } catch (error) {
+    log.warn("raw source cache read failed:", String(error))
+  }
+  log.info(`raw source cache miss: build ${build}`)
+  return null
+}
+
+async function writeCachedGame(cached: CachedGame): Promise<void> {
+  const key = cacheKey(cached.build)
+  try {
+    const previous = await storageGet<string | null>(CACHE_POINTER, null)
+    await storageSet(key, cached)
+    await storageSet(CACHE_POINTER, key)
+    if (previous && previous !== key) await storageDelete(previous)
+    log.info(
+      `raw source cached: build ${cached.build}, hash ${cached.hash.slice(0, 16)}`
+    )
+  } catch (error) {
+    log.warn("raw source cache write failed:", String(error))
+  }
+}
+
+async function processSource(
+  build: string,
+  ciphertext: Uint8Array,
+  keystream: Uint8Array
+): Promise<WorkerResult> {
+  const url = URL.createObjectURL(
+    new Blob([__LOADER_WORKER_SOURCE__], { type: "text/javascript" })
+  )
+  const worker = new Worker(url)
+
+  try {
+    const ciphertextBuffer = ciphertext.slice().buffer
+    const keystreamBuffer = keystream.slice().buffer
+    const resultPromise = workerMessage<WorkerResult>(worker)
+    worker.postMessage(
+      {
+        type: "process",
+        build,
+        ciphertext: ciphertextBuffer,
+        keystream: keystreamBuffer,
+      },
+      [ciphertextBuffer, keystreamBuffer]
+    )
+    return await resultPromise
+  } finally {
+    worker.terminate()
+    URL.revokeObjectURL(url)
+  }
+}
+
+async function patchSource(source: string): Promise<string> {
+  const url = URL.createObjectURL(
+    new Blob([__LOADER_WORKER_SOURCE__], { type: "text/javascript" })
+  )
+  const worker = new Worker(url)
+  try {
+    const resultPromise = workerMessage<WorkerPatched>(worker)
+    worker.postMessage({ type: "patch", source })
+    return (await resultPromise).source
+  } finally {
+    worker.terminate()
+    URL.revokeObjectURL(url)
+  }
 }
 
 async function bootFromCoreDat(
   build: string,
   originalFetch: typeof fetch
 ): Promise<void> {
+  const cached = await readCachedGame(build)
+  if (cached) {
+    const [token, source] = await Promise.all([
+      fetchToken(originalFetch),
+      patchSource(cached.rawSource),
+    ])
+    diag().tokenLength = token.length
+    diag().sourceBytes = cached.sourceBytes
+    diag().sourceChars = source.length
+    setStage("token-fetched")
+    setStage("patched")
+    await executeWhenReady(source, token, cached.metadata)
+    return
+  }
+
   const [ciphertext, token, binary] = await Promise.all([
     fetchSplits(build, originalFetch),
     fetchToken(originalFetch),
@@ -79,28 +289,44 @@ async function bootFromCoreDat(
     )
   }
 
-  const decrypted = xorDecrypt(ciphertext, keystream)
+  const processed = await processSource(build, ciphertext, keystream)
+  const rawSource = processed.rawSource
+  diag().sourceBytes = processed.sourceBytes
   setStage("decrypted")
-
-  const plaintext = brotliDecompress(decrypted)
-  diag().sourceBytes = plaintext.length
   setStage("decompressed")
-  log.info(`decompressed to ${plaintext.length} bytes`)
-  if (plaintext.length < MIN_SOURCE_BYTES) {
-    throw new Error(`decoded source is only ${plaintext.length} bytes`)
-  }
+  log.info(`decompressed to ${processed.sourceBytes} bytes in worker`)
+  diag().sourceChars = rawSource.length
 
-  const source = applyPatches(reassemble(plaintext))
+  const metadata: ExecutionMetadata = {
+    params: processed.params,
+    renamed: recoverRenamed(rawSource, pageWindow()),
+  }
+  await writeCachedGame({
+    build,
+    hash: processed.hash,
+    rawSource,
+    sourceBytes: processed.sourceBytes,
+    metadata,
+  })
+
+  const source = await patchSource(rawSource)
   diag().sourceChars = source.length
   setStage("patched")
+  await executeWhenReady(source, token, metadata)
+}
 
+async function executeWhenReady(
+  source: string,
+  token: string,
+  metadata: ExecutionMetadata
+): Promise<void> {
   // The stock loader runs the body from the window load handler, so executing
   // any earlier races the page's own <script src> libs.
   await whenLoaded(pageWindow())
   setStage("page-loaded")
 
   setStage("executing")
-  executeGame(source, token)
+  executeGame(source, token, metadata)
 }
 
 function whenLoaded(win: Window): Promise<void> {
