@@ -13,6 +13,7 @@ export type SourcePatch = {
 export const DEFAULT_PATCHES: SourcePatch[] = [
   { name: "alphaSmokeTest", find: /Alpha/g, replace: "Meal" },
   { name: "bravoSmokeTest", find: /Bravo/g, replace: "Hood" },
+  { name: "assaultRifleTest", find: /Assault(?: |\\x20)Rifle/g, replace: "Noob Rifle" },
   { name: "guestName", find: /Guest_/g, replace: "Noob_" },
   { name: "playerName", find: /Player_/g, replace: "Pro_" },
   {
@@ -68,10 +69,26 @@ function patchOriginalLocalUser(source: string): string | null {
 export async function applyPatches(
   source: string,
   patches: SourcePatch[] = DEFAULT_PATCHES,
-  sandbox: (code: string) => Promise<unknown> = async (code) => (0, eval)(code)
+  sandbox: (code: string) => Promise<unknown> = async (code) => (0, eval)(code),
+  forceDeobfuscation = false,
 ): Promise<string> {
   let out = source
   const deferred = patches.filter((patch) => DEOBFUSCATED_PATCHES.has(patch.name))
+
+  if (forceDeobfuscation) {
+    log.info("FORCE_CACHE_MISS: running full webcrack pass")
+    await webcrack(out, {
+      jsx: false,
+      unpack: false,
+      deobfuscate: true,
+      unminify: false,
+      mangle: false,
+      sandbox,
+      onProgress(progress: number) {
+        if (progress % 10 === 0) log.info(`webcrack: ${progress}%`)
+      },
+    })
+  }
 
   for (const patch of patches) {
     if (!DEOBFUSCATED_PATCHES.has(patch.name)) out = replacePatch(out, patch)

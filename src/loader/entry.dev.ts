@@ -10,25 +10,13 @@ const legacyDelete =
   typeof GM_deleteValue === "function"
     ? GM_deleteValue.bind(globalThis)
     : undefined;
-const modernGet =
-  typeof GM !== "undefined" && typeof GM.getValue === "function"
-    ? GM.getValue.bind(GM)
-    : undefined;
-const modernSet =
-  typeof GM !== "undefined" && typeof GM.setValue === "function"
-    ? GM.setValue.bind(GM)
-    : undefined;
-const modernDelete =
-  typeof GM !== "undefined" && typeof GM.deleteValue === "function"
-    ? GM.deleteValue.bind(GM)
-    : undefined;
 
 Object.defineProperty(globalThis, "__SKETCH_LOADER_STORAGE__", {
   configurable: true,
   value: {
-    get: legacyGet || modernGet,
-    set: legacySet || modernSet,
-    delete: legacyDelete || modernDelete,
+    get: legacyGet,
+    set: legacySet,
+    delete: legacyDelete,
   },
 });
 

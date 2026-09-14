@@ -14,9 +14,6 @@
     "GM_xmlhttpRequest",
     "GM_getValue",
     "GM_setValue",
-    "GM_deleteValue",
-    "GM.getValue",
-    "GM.setValue",
-    "GM.deleteValue"
+    "GM_deleteValue"
   ]
 }

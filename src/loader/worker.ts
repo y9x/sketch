@@ -16,6 +16,7 @@ type ProcessRequest = {
 type PatchRequest = {
   type: "patch"
   source: string
+  forceDeobfuscation?: boolean
 }
 
 type SandboxResult = {
@@ -67,7 +68,12 @@ globalThis.onmessage = async (
 
   try {
     if (event.data.type === "patch") {
-      const source = await applyPatches(event.data.source, undefined, sandbox)
+      const source = await applyPatches(
+        event.data.source,
+        undefined,
+        sandbox,
+        event.data.forceDeobfuscation,
+      )
       globalThis.postMessage({ type: "patched", source })
       return
     }

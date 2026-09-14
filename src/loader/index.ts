@@ -1,7 +1,7 @@
 import { discoverKeystream, logDeriveReport } from "./derive"
+import { fetchKeystreamArtifact } from "./artifact"
 import { pageWindow } from "./env"
 import { type ExecutionMetadata, executeGame } from "./execute"
-import { knownBuilds, resolveKeystream } from "./keystreams"
 import { diag, log, setStage } from "./log"
 import { BYPASS_KEY, neutralize } from "./neutralize"
 import { type GameParams, recoverRenamed } from "./params"
@@ -99,9 +99,6 @@ async function storageGet<T>(key: string, fallback: T): Promise<T> {
   const bridge = storageBridge()
   if (bridge?.get) return bridge.get(key, fallback)
   if (typeof GM_getValue === "function") return GM_getValue<T>(key, fallback)
-  if (typeof GM !== "undefined" && typeof GM.getValue === "function") {
-    return GM.getValue<T>(key, fallback)
-  }
   throw new Error("Tampermonkey storage API unavailable; reinstall the DEV userscript")
 }
 
@@ -115,10 +112,6 @@ async function storageSet(key: string, value: unknown): Promise<void> {
     GM_setValue(key, value)
     return
   }
-  if (typeof GM !== "undefined" && typeof GM.setValue === "function") {
-    await GM.setValue(key, value)
-    return
-  }
   throw new Error("Tampermonkey storage API unavailable; reinstall the DEV userscript")
 }
 
@@ -130,10 +123,6 @@ async function storageDelete(key: string): Promise<void> {
   }
   if (typeof GM_deleteValue === "function") {
     GM_deleteValue(key)
-    return
-  }
-  if (typeof GM !== "undefined" && typeof GM.deleteValue === "function") {
-    await GM.deleteValue(key)
   }
 }
 
@@ -205,14 +194,17 @@ async function processSource(
   }
 }
 
-async function patchSource(source: string): Promise<string> {
+async function patchSource(
+  source: string,
+  forceDeobfuscation = false
+): Promise<string> {
   const url = URL.createObjectURL(
     new Blob([__LOADER_WORKER_SOURCE__], { type: "text/javascript" })
   )
   const worker = new Worker(url)
   try {
     const resultPromise = workerMessage<WorkerPatched>(worker)
-    worker.postMessage({ type: "patch", source })
+    worker.postMessage({ type: "patch", source, forceDeobfuscation })
     return (await resultPromise).source
   } finally {
     worker.terminate()
@@ -224,7 +216,11 @@ async function bootFromCoreDat(
   build: string,
   originalFetch: typeof fetch
 ): Promise<void> {
-  const cached = await readCachedGame(build)
+  const forceCacheMiss = Boolean(pageWindow().localStorage.FORCE_CACHE_MISS)
+  if (forceCacheMiss) {
+    log.warn("FORCE_CACHE_MISS enabled: bypassing raw cache and forcing webcrack")
+  }
+  const cached = forceCacheMiss ? null : await readCachedGame(build)
   if (cached) {
     const [token, source] = await Promise.all([
       fetchToken(originalFetch),
@@ -239,12 +235,11 @@ async function bootFromCoreDat(
     return
   }
 
-  const [ciphertext, token, binary] = await Promise.all([
+  const [ciphertext, token, artifact] = await Promise.all([
     fetchSplits(build, originalFetch),
     fetchToken(originalFetch),
-    // Advisory only: a scan failure must not sink a boot that would succeed.
-    fetchLoaderWasm(build, originalFetch).catch((error) => {
-      log.warn("loader wasm fetch failed:", String(error))
+    fetchKeystreamArtifact(build, originalFetch).catch((error) => {
+      log.warn("KrunkBox keystream fetch failed; falling back to binary scan:", String(error))
       return null
     }),
   ])
@@ -254,23 +249,22 @@ async function bootFromCoreDat(
   setStage("token-fetched")
   log.info(`core.dat ${ciphertext.length} bytes, token ${token.length} chars`)
 
-  if (binary) {
-    diag().wasm = await scanWasmBytes(build, binary.url, binary.bytes).catch(
-      (error) => {
-        log.warn("wasm signature scan failed:", String(error))
-        return null
-      }
-    )
-  }
-  setStage("wasm-scanned")
-
-  let keystream = resolveKeystream(build)
+  let keystream = artifact
   if (keystream) {
-    log.info(`using bundled keystream for build ${build}`)
-  } else if (binary) {
-    log.warn(
-      `no bundled keystream for build ${build} (have: ${knownBuilds().join(", ")}); scanning binary`
-    )
+    log.info(`using KrunkBox keystream for build ${build}`)
+  } else {
+    const binary = await fetchLoaderWasm(build, originalFetch).catch((error) => {
+      log.warn("loader wasm fetch failed:", String(error))
+      return null
+    })
+    if (binary) {
+      diag().wasm = await scanWasmBytes(build, binary.url, binary.bytes).catch(
+        (error) => {
+          log.warn("wasm signature scan failed:", String(error))
+          return null
+        }
+      )
+      setStage("wasm-scanned")
     const report = discoverKeystream(binary.bytes, ciphertext)
     diag().derive = {
       segments: report.segments,
@@ -282,10 +276,11 @@ async function bootFromCoreDat(
     }
     logDeriveReport(report)
     if (report.find) keystream = report.find.keystream
+    }
   }
   if (!keystream) {
     throw new Error(
-      `no keystream for build ${build}: not bundled and not recoverable from the binary`
+      `no keystream for build ${build}: unavailable from KrunkBox and not recoverable from the binary`
     )
   }
 
@@ -309,7 +304,7 @@ async function bootFromCoreDat(
     metadata,
   })
 
-  const source = await patchSource(rawSource)
+  const source = await patchSource(rawSource, forceCacheMiss)
   diag().sourceChars = source.length
   setStage("patched")
   await executeWhenReady(source, token, metadata)
