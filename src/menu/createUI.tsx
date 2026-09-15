@@ -45,6 +45,7 @@ function createSketchMenuItem(menuItemContainer: HTMLDivElement) {
   if (created) return;
   created = true;
   const item = document.createElement("div");
+  item.id = "sketchMenuButton";
   item.className = "menuItem svelte-fgmdj8";
   item.addEventListener("mouseenter", () => playTick());
   item.addEventListener("click", () => playSelect());

@@ -42,6 +42,23 @@ type StorageBridge = {
   delete?: (key: string) => void | Promise<void>
 }
 
+export type LoaderTransformContext = {
+  build: string
+  metadata: ExecutionMetadata
+  fetchImpl: typeof fetch
+}
+
+export type LoaderOptions = {
+  resolveSource?: (
+    source: string,
+    context: LoaderTransformContext
+  ) => string | Promise<string>
+  transformSource?: (
+    source: string,
+    context: LoaderTransformContext
+  ) => string | Promise<string>
+}
+
 function storageBridge(): StorageBridge | undefined {
   return (
     globalThis as typeof globalThis & {
@@ -214,7 +231,8 @@ async function patchSource(
 
 async function bootFromCoreDat(
   build: string,
-  originalFetch: typeof fetch
+  originalFetch: typeof fetch,
+  options: LoaderOptions
 ): Promise<void> {
   const forceCacheMiss = Boolean(pageWindow().localStorage.FORCE_CACHE_MISS)
   if (forceCacheMiss) {
@@ -222,16 +240,30 @@ async function bootFromCoreDat(
   }
   const cached = forceCacheMiss ? null : await readCachedGame(build)
   if (cached) {
-    const [token, source] = await Promise.all([
-      fetchToken(originalFetch),
-      patchSource(cached.rawSource),
-    ])
+    const token = await fetchToken(originalFetch)
+    let source = cached.rawSource
+    if (options.resolveSource) {
+      source = await options.resolveSource(source, {
+        build,
+        metadata: cached.metadata,
+        fetchImpl: originalFetch,
+      })
+      log.info(`using processed KrunkBox source for build ${build}`)
+    }
+    if (!options.resolveSource) source = await patchSource(source)
     diag().tokenLength = token.length
     diag().sourceBytes = cached.sourceBytes
     diag().sourceChars = source.length
     setStage("token-fetched")
     setStage("patched")
-    await executeWhenReady(source, token, cached.metadata)
+    await executeWhenReady(
+      source,
+      token,
+      cached.metadata,
+      build,
+      options,
+      originalFetch,
+    )
     return
   }
 
@@ -304,21 +336,45 @@ async function bootFromCoreDat(
     metadata,
   })
 
-  const source = await patchSource(rawSource, forceCacheMiss)
+  let source = rawSource
+  if (options.resolveSource) {
+    source = await options.resolveSource(source, {
+      build,
+      metadata,
+      fetchImpl: originalFetch,
+    })
+    log.info(`using processed KrunkBox source for build ${build}`)
+  }
+  // KrunkBox source is already webcracked; FORCE_CACHE_MISS should only force
+  // the expensive deobfuscation oracle when standalone mode still uses raw source.
+  if (!options.resolveSource) source = await patchSource(source, forceCacheMiss)
   diag().sourceChars = source.length
   setStage("patched")
-  await executeWhenReady(source, token, metadata)
+  await executeWhenReady(source, token, metadata, build, options, originalFetch)
 }
 
 async function executeWhenReady(
   source: string,
   token: string,
-  metadata: ExecutionMetadata
+  metadata: ExecutionMetadata,
+  build: string,
+  options: LoaderOptions,
+  originalFetch: typeof fetch,
 ): Promise<void> {
   // The stock loader runs the body from the window load handler, so executing
   // any earlier races the page's own <script src> libs.
   await whenLoaded(pageWindow())
   setStage("page-loaded")
+
+  if (options.transformSource) {
+    source = await options.transformSource(source, {
+      build,
+      metadata,
+      fetchImpl: originalFetch,
+    })
+    diag().sourceChars = source.length
+    setStage("integrated")
+  }
 
   setStage("executing")
   executeGame(source, token, metadata)
@@ -331,7 +387,7 @@ function whenLoaded(win: Window): Promise<void> {
   })
 }
 
-export async function boot(): Promise<void> {
+export async function boot(options: LoaderOptions = {}): Promise<void> {
   const win = pageWindow()
 
   try {
@@ -354,7 +410,7 @@ export async function boot(): Promise<void> {
     setStage("build-detected")
     log.info(`krunker build: ${build}`)
 
-    await bootFromCoreDat(build, originalFetch)
+    await bootFromCoreDat(build, originalFetch, options)
     setStage("done")
     log.info("game booted from core.dat, no wasm loader involved")
   } catch (error) {

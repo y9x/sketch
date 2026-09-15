@@ -120,12 +120,25 @@ await loaderMain.dispose();
 console.log("produced", loaderOut);
 
 const sketchMain = await context({
+  alias: loaderBrowser.alias,
   entryPoints: [fromRoot("src/index.ts")],
   format: "iife",
   sourcemap: isDebug ? "external" : false,
-  define: envReplacements,
+  define: {
+    ...loaderBrowser.define,
+    __LOADER_WORKER_SOURCE__: JSON.stringify(loaderWorkerSource),
+  },
   outfile: mainOut,
-  external: ["os", "fs", "path", "http", "https", "electron"],
+  external: [
+    ...loaderBrowser.external,
+    "os",
+    "fs",
+    "path",
+    "http",
+    "https",
+    "electron",
+  ],
+  loader: loaderBrowser.loader,
   bundle: true,
   minify: !isDebug,
   jsx: "transform",

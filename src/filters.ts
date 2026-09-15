@@ -11,7 +11,6 @@ import { hookContext, mirrorAttributes } from "./hook";
 import type KrunkBox from "./KrunkBox";
 import type * as THREE from "three";
 import type { MapData } from "./krunker/GameMap";
-import type { Hook } from "./inject";
 import { AI } from "./krunker/AI";
 import type * as IO from "./krunker/io";
 import { sessionStore } from "./sessionStore";
@@ -110,9 +109,13 @@ export const data: Record<string, any> = {
         w.addEventListener("error", (e) =>
           console.error("[sketch] uncaught:", e.message, e.filename, e.lineno),
         );
-        w.addEventListener("unhandledrejection", (e) =>
-          console.error("[sketch] unhandled rejection:", e.reason),
-        );
+        w.addEventListener("unhandledrejection", (e) => {
+          // The loader's capture listener prevents the expected empty-WASM
+          // rejection before this DEV logger sees it. Do not report events
+          // that another runtime component has already handled.
+          if (e.defaultPrevented) return;
+          console.error("[sketch] unhandled rejection:", e.reason);
+        });
       }
 
       waitFor(
@@ -299,26 +302,19 @@ export const patches: Record<
 export const dataArg = "_" + Math.random().toString(36).slice(2);
 
 const v = /(?<![a-zA-Z0-9_])[iIìíîïÌÍÎÏ]+(?![a-zA-Z0-9_])/;
+// KrunkBox's final esbuild pass mangles identifiers to ordinary JS names.
+const minifiedIdentifier = /[$A-Za-z_][$\w]*/;
 
 patches.io = [
   new RegExp(
-    `(this|${v.source})\\[(${v.source}\\(0x[0-9a-f]+\\))\\]=new WebSocket\\((${v.source})\\)`,
+    `this\\.socket=new WebSocket\\((${minifiedIdentifier.source})\\),this\\.socket\\.binaryType="arraybuffer"`,
   ),
-  (_, target, prop, arg) => `${dataArg}.socket(${target}, ${prop}, ${arg})`,
+  (_, arg) =>
+    `${dataArg}.socket(this,"socket",${arg}),this.socket.binaryType="arraybuffer"`,
 ];
 
-const fr = Object.freeze;
 const dp = Object.defineProperty;
 data.object = Object.create(Object);
-data.object.freeze = mirrorAttributes(
-  function freeze(o: any) {
-    if (o && "gameVersion" in o) {
-      config = o;
-    }
-    return fr(o);
-  } as typeof Object.freeze,
-  fr,
-);
 
 data.object.defineProperty = mirrorAttributes(
   function definePropertyHook(o: any, k: string, a: PropertyDescriptor) {
@@ -343,35 +339,33 @@ data.object.defineProperty = mirrorAttributes(
   dp,
 );
 
-patches.freeze = [/Object\[/g, () => `${dataArg}.object[`];
-
 // Patch the special clan color function to check our clan color overrides first.
 // Original: function sr(e,a){return typeof e=="string"&&["arae",...].includes(e.toLowerCase())?"#FBC02D":a}
 // We wrap it so that if a clan name has a custom color override, that color is returned instead.
 patches.specialClanColor = [
-  /function (\w+)\((\w+),(\w+)\)\{return typeof \2=="string"&&\["arae","lain","scte","fame","kpd","jump","art","dev"\]\.includes\(\2\.toLowerCase\(\)\)\?"#FBC02D":\3\}/,
-  (_: string, fnName: string, clanArg: string, fallbackArg: string) => {
-    return `function ${fnName}(${clanArg},${fallbackArg}){var _o=${dataArg}.clanColorOverrides;if(_o&&typeof ${clanArg}==="string"){var _k=${clanArg}.toLowerCase();if(_o[_k])return _o[_k]}return typeof ${clanArg}=="string"&&["arae","lain","scte","fame","kpd","jump","art","dev"].includes(${clanArg}.toLowerCase())?"#FBC02D":${fallbackArg}}`;
+  /function ([$\w]+)\(([$\w]+),([$\w]+)\)\{return typeof \2=="string"&&(\[[^\]]+\])\.includes\(\2\.toLowerCase\(\)\)\?"#FBC02D":\3\}/,
+  (_: string, fnName: string, clanArg: string, fallbackArg: string, clans: string) => {
+    return `function ${fnName}(${clanArg},${fallbackArg}){var _o=${dataArg}.clanColorOverrides;if(_o&&typeof ${clanArg}==="string"){var _k=${clanArg}.toLowerCase();if(_o[_k])return _o[_k]}return typeof ${clanArg}=="string"&&${clans}.includes(${clanArg}.toLowerCase())?"#FBC02D":${fallbackArg}}`;
   },
 ];
 
 patches.updateMenuAccountData = [
-  /window\[['"]updateMenuAccountData['"]\]=function\(\)\{([^}]*)\}/,
+  /window\.updateMenuAccountData=function\(\)\{([^}]*)\}/,
   (_, body) => {
     // Extract the account variable from STORE['set'](ACCOUNT_VAR)
-    const setMatch = (body as string).match(/\['set'\]\(([^)]+)\)/);
+    const setMatch = (body as string).match(/(?:\[['"]set['"]\]|\.set)\(([^)]+)\)/);
     const accountVar = setMatch?.[1];
     const capture = accountVar ? `${dataArg}.onSvelteAccountData(${accountVar});` : "";
-    return `window["updateMenuAccountData"]=${dataArg}.wrapUpdateMenuAccountData(function(){${capture}${body}})`;
+    return `window.updateMenuAccountData=${dataArg}.wrapUpdateMenuAccountData(function(){${capture}${body}})`;
   },
 ];
 
 patches.switchLeaderboard = [
   new RegExp(
-    `window\\[(${v.source}\\(0x[0-9a-f]+\\))\\]=function\\((${v.source}),(${v.source})\\)\\{([^}]*leaderboardHolder[^}]*)\\}`,
+    `window\\.switchLeaderboard=function\\((${minifiedIdentifier.source}),(${minifiedIdentifier.source})\\)\\{([^}]*leaderboardHolder[^}]*)\\}`,
   ),
-  (_: string, lookup: string, arg1: string, arg2: string, body: string) => {
-    return `window[${lookup}]=${dataArg}.wrapSwitchLeaderboard(function(${arg1},${arg2}){${body}})`;
+  (_: string, arg1: string, arg2: string, body: string) => {
+    return `window.switchLeaderboard=${dataArg}.wrapSwitchLeaderboard(function(${arg1},${arg2}){${body}})`;
   },
 ];
 
@@ -380,20 +374,23 @@ patches.switchLeaderboard = [
 // The 3rd arg is the i18n array: ["server.message.join", "PlayerName"]
 patches.chatI18N = [
   new RegExp(
-    `function\\s+(${v.source})\\((${v.source},${v.source},(${v.source}),${v.source},${v.source},${v.source},${v.source})\\)\\{([^}]*)\\}window\\['switchChat'\\]`,
+    `function\\s+(${minifiedIdentifier.source})\\((${minifiedIdentifier.source},${minifiedIdentifier.source},(${minifiedIdentifier.source}),${minifiedIdentifier.source},${minifiedIdentifier.source},${minifiedIdentifier.source},${minifiedIdentifier.source})\\)\\{([^}]*)\\}window\\.switchChat`,
   ),
   (_: string, fnName: string, allArgs: string, thirdArg: string, body: string) => {
-    return `function ${fnName}(${allArgs}){Array['isArray'](${thirdArg})||(${thirdArg}=[${thirdArg}]);${dataArg}.chatI18N(${thirdArg});${body}}window['switchChat']`;
+    return `function ${fnName}(${allArgs}){Array.isArray(${thirdArg})||(${thirdArg}=[${thirdArg}]);${dataArg}.chatI18N(${thirdArg});${body}}window.switchChat`;
   },
 ];
 
-// Game constructor. The Players constructor also assigns this['isServer'], but
-// that one is followed by this['liveObjects'], so anchoring on this['isClient']
+// Game constructor in KrunkBox's esbuild output. The Players constructor also
+// assigns this.isServer, but that one is followed by this.liveObjects, so
+// anchoring on this.isClient uniquely selects Game.
 // uniquely selects Game. Capture inside the existing comma chain.
 patches.game = [
-  new RegExp(`this\\['isServer'\\]=!!(${v.source}),this\\['isClient'\\]`),
+  new RegExp(
+    `this\\.isServer=!!(${minifiedIdentifier.source}),this\\.isClient`,
+  ),
   (_: string, arg: string) =>
-    `this['isServer']=!!${arg},${dataArg}.captureGame(this),this['isClient']`,
+    `this.isServer=!!${arg},${dataArg}.captureGame(this),this.isClient`,
 ];
 
 // Render manager constructor: `,this['clearSkyDome']=function(){...}`, a method
@@ -402,8 +399,8 @@ patches.game = [
 // skyDome and no skyCol override, so it fired late or never. 'clearSkyDome' has
 // exactly one literal occurrence outside the obfuscator string array.
 patches.render = [
-  new RegExp(`,this\\['clearSkyDome'\\]=function\\(\\)`),
-  () => `,${dataArg}.captureRender(this),this['clearSkyDome']=function()`,
+  /,this\.clearSkyDome=function\(\)/,
+  () => `,${dataArg}.captureRender(this),this.clearSkyDome=function()`,
 ];
 
 // Overlay module init chain: `<overlay>[..]=null,<overlay>['hideNames']=!0x1,`.
@@ -412,9 +409,9 @@ patches.render = [
 // literals are settings setters assigning a variable rather than !0x1, and the
 // leading `]=null,` pins this to the init chain.
 patches.overlay = [
-  new RegExp(`\\]=null,(${v.source})\\['hideNames'\\]=!0x1,`),
+  new RegExp(`=null,(${minifiedIdentifier.source})\\.hideNames=!1,`),
   (_: string, target: string) =>
-    `]=null,${dataArg}.captureOverlay(${target})['hideNames']=!0x1,`,
+    `=null,${dataArg}.captureOverlay(${target}).hideNames=!1,`,
 ];
 
 // SETTINGS constructor: `this['tmp']={},this['bundleMedalFilters']=function(){`.
@@ -422,11 +419,18 @@ patches.overlay = [
 // closes over, confirming `tmp` and `bundleMedalFilters` share one owner, so
 // `this` here is SETTINGS. Exactly one literal occurrence in the source.
 patches.settings = [
-  new RegExp(
-    `this\\['tmp'\\]=\\{\\},this\\['bundleMedalFilters'\\]=function\\(\\)`,
-  ),
+  /this\.tmp=\{\},this\.bundleMedalFilters=function\(\)/,
   () =>
-    `this['tmp']={},${dataArg}.captureSettings(this),this['bundleMedalFilters']=function()`,
+    `this.tmp={},${dataArg}.captureSettings(this),this.bundleMedalFilters=function()`,
+];
+
+// KrunkBox preserves the frozen config namespace as a null-prototype object.
+// Capture that object directly instead of temporarily replacing Object.freeze;
+// the source patch is deterministic and cannot miss due to realm/timing issues.
+patches.config = [
+  /([$\w]+)=Object\.freeze\((\{__proto__:null,(?=[\s\S]{0,15000}?gameVersion:)(?=[\s\S]{0,15000}?zombiePerks:)[\s\S]{0,15000}?zombiePerks:[^,}]+\})\)/,
+  (_, configName, configObject) =>
+    `${configName}=${dataArg}.captureConfig(Object.freeze(${configObject}))`,
 ];
 
 // patches.lol = [new RegExp(`this\\[(${v.source}\\(0x[0-9a-f]+\\))\\]=new WebSocket\\(`), (_, prop) => `this[${prop}] = ${dataArg}.socket = new WebSocket(`];
@@ -648,15 +652,17 @@ data.history = new Proxy(history, {
   },
 });
 
-// Patch bracket-access: window["location"] and window['location']
+// KrunkBox's esbuild pass emits dot access. Route reads through the spoofing
+// proxy while preserving the game's one real navigation assignment.
 patches.spoofLocation = [
-  /window\[(['"])location\1\]/g,
+  /window\.location(?!\s*(?:=|\+=|-=|\+\+|--))/g,
   () => `${dataArg}.location`,
 ];
 
-// Patch bracket-access: window["history"] and window['history']
+// History is only read in the processed source, so all accesses can use the
+// wrapper that keeps pushed/replaced URLs spoofed.
 patches.spoofHistory = [
-  /window\[(['"])history\1\]/g,
+  /window\.history/g,
   () => `${dataArg}.history`,
 ];
 
@@ -713,6 +719,12 @@ export function getConfig() {
   if (!config) throw new Error("Too early");
   return config;
 }
+
+data.captureConfig = function captureConfig(o: typeof configModule) {
+  config = o;
+  if (isDevelopment) console.log("[sketch] captured config");
+  return o;
+};
 
 /**
  * After the overlay is rendered
@@ -801,9 +813,14 @@ function doOverlayHooks() {
 
   overlay.render = mirrorAttributes(
     function (this: any, ...args: any[]) {
-      if (localPlayer) runHooks("preOverlayRenderHook", preOverlayRenderHooks);
+      // The overlay can render before Object.freeze captures the game config.
+      // Skip only Sketch's callbacks during that short initialization window;
+      // the game's own render must continue unconditionally.
+      if (localPlayer && config)
+        runHooks("preOverlayRenderHook", preOverlayRenderHooks);
       const result = renderFn.call(this, ...args);
-      if (localPlayer) runHooks("overlayRenderHook", overlayRenderHooks);
+      if (localPlayer && config)
+        runHooks("overlayRenderHook", overlayRenderHooks);
       return result;
     } as typeof renderFn,
     renderFn,
@@ -1582,11 +1599,11 @@ Object.defineProperties(fakeObj, descs);
 
 /* javascript-obfuscator:enable */
 
-export const hook: Hook = (
+export const hook = (
   src: string,
   ebox: KrunkBox,
   args: Record<string, any>,
-) => {
+): string => {
   box = ebox;
 
   for (const name in patches) {

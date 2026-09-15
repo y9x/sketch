@@ -39,22 +39,23 @@ source), `SKETCH_VERSION`, `SKETCH_DEV_API_HOST`, `SKETCH_DEV_API_PORT`.
 
 ## The Injection Pipeline
 
-Read these five files in order; they are the whole load path.
+Read these files in order; they are the whole load path.
 
-1. **`src/index.ts`** — `main()`. Version-checks against krunkbox, resolves a
-   token, calls `prepareSource`, registers the source interceptor, then awaits
-   `gameLoad`. Also builds the **prologue** and pushes the `afterGame` +
-   `sketchButton()` runner onto `onGameHooks`.
-2. **`src/inject.ts`** — `prepareSource()`. Pulls the game source from krunkbox,
-   installs the `renamed` globals map (e.g. `JfCzGzvGIQB8rrJX = setTimeout`),
-   seeds `injectArgs`, and hands the source to `hook`.
-3. **`src/filters.ts`** — `hook` applies every entry in `patches` to the ~8.6M
+1. **`src/index.ts`** — starts `boot()` synchronously, resolves Sketch config
+  and auth for its `transformSource` callback, builds the **prologue**, and
+  pushes the `afterGame` + `sketchButton()` runner onto `onGameHooks`.
+2. **`src/loader/index.ts`** — neutralizes the stock WASM loader, fetches all
+  `core.dat` splits and the matchmaking token, uses the KrunkBox keystream
+  artifact (with WASM recovery fallback), and owns source execution.
+3. **`src/loader/worker.ts`** — decrypts/decompresses the bundle and maintains
+  the raw-source cache. `localStorage.FORCE_CACHE_MISS` bypasses this cache.
+4. **`src/filters.ts`** — `hook` applies every entry in `patches` to the ~8.6M
    char obfuscated bundle. Also holds all runtime state, capture callbacks, and
    hook arrays. The biggest and most important file in the repo.
-4. **`src/dogehook.ts`** — how we actually obtain the source. Krunker compiles
-   the bundle inside WASM, so we hook **`window.TextDecoder.prototype.decode`**. It
-   self-uninstalls on first hit.
-5. **`src/hook.ts`** — `mirrorAttributes` / `setNativeFunction` /
+5. **`src/dogehook.ts`** — retains only runtime anti-tamper/context work: the
+  clean window hook, fetch mirroring, game-ID unspoofing, inject exposure, and
+  DOM ad blocking. It does not acquire or intercept game source.
+6. **`src/hook.ts`** — `mirrorAttributes` / `setNativeFunction` /
    `hookContext`, the `Function.prototype.toString` spoofing layer.
 
 ### The prologue

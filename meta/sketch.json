@@ -12,6 +12,7 @@
   ],
   "antifeature": "ads",
   "grant": [
+    "unsafeWindow",
     "GM_getValue",
     "GM_setValue",
     "GM_listValues",

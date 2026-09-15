@@ -134,50 +134,6 @@ export default class KrunkBox {
       return { success: true };
     }
   }
-  async gameData(): Promise<
-    | { success: true; source: string; renamed: Record<string,string> }
-    | { success: false; error: [code: string, ...flags: any[]] }
-  > {
-    while (true) {
-      const res = await GM_fetch(new URL("z", apiURL), {
-        headers: {
-          // only have to send the token
-          // doesn't get rotated here due to source() and hash() being called at the same time
-          "x-token": this.token,
-        },
-      }).catch((err) => {
-        if (isDevelopment) console.error(err);
-      });
-
-      // has not been minified/processed yet
-      if (res?.status === 404) {
-        await sleepError();
-        continue;
-      }
-
-      if (res?.status === 403)
-        return { success: false, error: [await res.text()] };
-
-      if (!res?.ok) {
-        await sleepError();
-        continue;
-      }
-
-      const a = await res.arrayBuffer();
-      const srcLength = Number(res.headers.get("x-src"));
-
-      const dec = new TextDecoder();
-
-      // console.log({ srcLength });
-
-      return {
-        success: true,
-        source: dec.decode(a.slice(0, srcLength)),
-        renamed: JSON.parse(dec.decode(a.slice(srcLength))),
-      };
-    }
-  }
-
   async reportCC(data: string) {
     await GM_fetch(new URL("cc", apiURL), {
       method: "POST",

@@ -10,6 +10,7 @@ type Stage =
   | "decompressed"
   | "patched"
   | "page-loaded"
+  | "integrated"
   | "executing"
   | "done"
   | "failed"

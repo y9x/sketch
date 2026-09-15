@@ -1,3 +1,5 @@
+export {};
+
 const devHost = process.env.SKETCH_DEV_API_HOST || "127.0.0.1";
 const devPort = process.env.SKETCH_DEV_API_PORT || "8080";
 const devApiURL = `http://${devHost}:${devPort}/`;

@@ -8,8 +8,9 @@ import {
   supportedGame,
 } from "./consts";
 import { afterGame, hook, runBeforeGameOnce, onGameHooks } from "./filters";
-import { prepareSource } from "./inject";
-import { gameLoad, setSourceInterceptor, setInjectValues } from "./dogehook";
+import { setInjectValues } from "./dogehook";
+import { boot } from "./loader";
+import { fetchProcessedSourceArtifact } from "./loader/artifact";
 import sketchConfig, { initSketchConfig } from "./sketchConfig";
 import { initPlayerSpoofConfig } from "./playerSpoofConfig";
 import { begToken, showUpdated, showFutile, panic } from "./anxiety";
@@ -68,18 +69,6 @@ function buildPrologue(injectArgs: Record<string, any>): string {
       'try { console.log("[sketch] prologue: __si =", !!__si, "beforeGame:", typeof (__si && __si.beforeGame)); } catch(e) {}',
     );
   for (const key of Object.keys(injectArgs)) {
-    if (key === "WP_MMToken") {
-      // The loader still calls this body with the real matchmaking token as its
-      // first argument; krunkbox's wrapper prologue otherwise clobbers it.
-      lines.push(
-        `var ${key} = (typeof arguments !== "undefined" && arguments.length && typeof arguments[0] === "string" && arguments[0]) || __si[${JSON.stringify(key)}];`,
-      );
-      if (isDevelopment)
-        lines.push(
-          `try { console.log("[sketch] mmToken:", ${key} === __si[${JSON.stringify(key)}] ? "PLACEHOLDER" : "real (" + ${key}.length + " chars)"); } catch(e) {}`,
-        );
-      continue;
-    }
     lines.push(`var ${key} = __si[${JSON.stringify(key)}];`);
   }
   lines.push('if (__si && __si.beforeGame) __si.beforeGame();');
@@ -87,9 +76,35 @@ function buildPrologue(injectArgs: Record<string, any>): string {
 }
 
 async function main() {
-  await initSketchConfig();
-  await initPlayerSpoofConfig();
-  await initTokenConfig();
+  let integrationSettled = false;
+  let resolveBox!: (box: KrunkBox | null) => void;
+  const boxReady = new Promise<KrunkBox | null>((resolve) => {
+    resolveBox = resolve;
+  });
+  const settleIntegration = (box: KrunkBox | null) => {
+    if (integrationSettled) return;
+    integrationSettled = true;
+    resolveBox(box);
+  };
+  const loader = boot({
+    resolveSource: (_source, { build, fetchImpl }) =>
+      fetchProcessedSourceArtifact(build, fetchImpl),
+    transformSource: async (source) => {
+      const krunkbox = await boxReady;
+      if (!krunkbox) return source;
+      const injectArgs: Record<string, any> = {};
+      const patched = hook(source, krunkbox, injectArgs);
+      setInjectValues({ ...injectArgs, beforeGame: runBeforeGameOnce });
+      // parseWorker normalizes the randomized token identifier to WP_MMToken.
+      // executeGame still passes the live token as the first wrapper argument.
+      return "var WP_MMToken = arguments[0];\n" + buildPrologue(injectArgs) + patched;
+    },
+  });
+
+  try {
+    await initSketchConfig();
+    await initPlayerSpoofConfig();
+    await initTokenConfig();
 
   checkHash();
 
@@ -125,42 +140,15 @@ async function main() {
     }
   }
 
-  while (true) {
-    if (!token) {
-      const t = await begToken();
-      if (!t) return;
-      token = t;
-      tokenConfig.set("token", token);
-    }
+  if (!token) {
+    const t = await begToken();
+    if (!t) return;
+    token = t;
+    tokenConfig.set("token", token);
+  }
 
-    const krunkbox = new KrunkBox(token!);
-    const prepared = await prepareSource(krunkbox, hook);
+    settleIntegration(new KrunkBox(token));
 
-    // needs to reload to use token
-    if (!prepared) {
-      if (isDevelopment) console.log("refresh to utilize token");
-      return;
-    }
-
-    if (!prepared.success) {
-      if (isDevelopment) console.error("init:", prepared);
-      tokenConfig.delete("token");
-      token = undefined;
-      continue;
-    }
-
-    const { source, injectArgs } = prepared;
-
-    // Expose runtime objects (fakeObj, data, WP_MMToken) to iframe contexts.
-    // No afterGame here: it would double-mount the button and duplicate the
-    // autoSpawn interval alongside onGameHooks.
-    setInjectValues({
-      ...injectArgs,
-      beforeGame: runBeforeGameOnce,
-    });
-
-    // afterGame runs here rather than from a source epilogue: the wrapper
-    // returns long before the game finishes async init.
     onGameHooks.push(() => {
       // Isolated so one failing hook can't stop the button from mounting.
       for (const ag of afterGame) {
@@ -184,20 +172,10 @@ async function main() {
       }, 1e3);
     });
 
-    const prologue = buildPrologue(injectArgs);
-
-    setSourceInterceptor((_url, _responseText) => {
-      if (isDevelopment) console.log("[sketch] intercepted XHR source, url:", _url.substring(0, 100), "original:", _responseText.length, "patched:", source.length);
-      return prologue + source;
-    });
-
-    if (isDevelopment) console.log("[DEV] interceptor registered, waiting for loader");
-
-    // The loader script will run naturally — WASM will create an iframe
-    // and call new Function() on it, which our proxy intercepts
-    await gameLoad;
-    if (isDevelopment) console.log("[DEV] loader script detected, game will compile via WASM");
-
-    break;
+    await loader;
+  } finally {
+    // Update checks, silent failure, or a cancelled token prompt must not leave
+    // the new loader paused after it has already neutralized the stock loader.
+    settleIntegration(null);
   }
 }

@@ -84,9 +84,10 @@ stat -c '%y %n' src/filters.ts dist/sketch.DEV.user.js
 Dev builds log their progress. A healthy load looks like:
 
 ```
-[sketch] TextDecoder.prototype.decode hooked
+[sketch-loader] stage: splits-fetched
+[sketch-loader] stage: decrypted
 [DEV] patching io/game/render/overlay/settings worked: true
-[sketch] intercepted game source: 8669826 chars
+[sketch-loader] stage: integrated
 [sketch] captured overlay
 [sketch] captured render
 [sketch] captured game
@@ -104,12 +105,12 @@ Krunker ships its client as an obfuscated bundle that is decompressed and
 compiled inside a WASM loader, so there is no plain `<script>` to intercept.
 Sketch works around that in five stages:
 
-1. **Intercept** — `src/dogehook.ts` hooks `TextDecoder.prototype.decode`.
-   When the loader decodes something larger than `GAME_SOURCE_MIN` (5,000,000
-   chars), that is the game source. The hook then uninstalls itself.
-2. **Fetch and verify** — `src/KrunkBox.ts` and `src/inject.ts` retrieve the
-   source and the `renamed` globals map from krunkbox and check version
-   compatibility.
+1. **Acquire** — `src/loader/index.ts` neutralizes the stock WASM loader,
+   fetches the eight `core.dat` splits and matchmaking token, then downloads
+   the current build's keystream artifact from KrunkBox.
+2. **Decrypt and cache** — the loader worker decrypts and Brotli-decompresses
+   the bundle. It caches only raw source by build/hash; patched copies are
+   disposable. `localStorage.FORCE_CACHE_MISS` forces the complete path.
 3. **Patch** — `src/filters.ts` applies a small set of regexes that splice
    `data.capture*(this)` calls next to stable, non-obfuscated string literals in
    the bundle (`'clearSkyDome'`, `'isServer'`, `'hideNames'`,
@@ -117,7 +118,7 @@ Sketch works around that in five stages:
    to the game, renderer, overlay, settings, and socket objects.
 4. **Inject** — a generated prologue declares the globals the bundle expects,
    read from a non-enumerable `window.__sketchInject`, and calls `beforeGame()`.
-   The patched source is returned to the loader in place of the original.
+   The patched source is returned to the integrated loader for execution.
 5. **Hook** — as each object is captured, the corresponding hook installer runs
    and the cheat modules in `src/cheats/` attach to the render, input, and
    overlay loops. Once the game object is usable, the Sketch menu button mounts.
@@ -141,10 +142,10 @@ presets, selectable from the menu.
 
 ```
 src/
-  index.ts        entry: version check, token, injection, load orchestration
-  inject.ts       prepareSource(): fetch, seed inject args, run patches
+   index.ts        entry: loader transform, version/auth, hook orchestration
+   loader/         split fetch, artifact lookup, decrypt/cache, patch, execute
   filters.ts      source patches, runtime state, hook arrays
-  dogehook.ts     TextDecoder interception, source interceptor
+   dogehook.ts     anti-tamper context/fetch hooks and runtime ad blocking
   hook.ts         toString spoofing (mirrorAttributes / setNativeFunction)
   consts.ts       env, environment detection, getExposedWindow()
   cheats/         one module per cheat
