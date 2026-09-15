@@ -176,7 +176,7 @@ The page realm matters: a cross-realm `ArrayBuffer` fails msgpack's
 
 - `src/cheats/` — one module per cheat: `aimbot`, `triggerbot`, `esp`, `bhop`,
   `recoilControl`, `forceAuto`, `skins` + `skinhack/`, `adblock`, `watermark`,
-  `keybindOverlay`, `analytics`. `src/cheats.ts` imports them for side effects.
+  `keybindOverlay`. `src/cheats.ts` imports them for side effects.
 - `src/menu/` — preact menu (`Menu.tsx`) and `createUI.tsx` (`sketchButton`).
 - `src/presets/` — `rage.ts`, `legit.ts`; both are `Partial<SketchConfig>` and
   are registered in the `presets` record in `Menu.tsx`.

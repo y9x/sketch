@@ -55,26 +55,6 @@ export default class KrunkBox {
       };
     }
   }
-  async schizo(payload: any) {
-    while (true) {
-      const res = await GM_fetch(new URL("to", apiURL), {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      }).catch((err) => {
-        if (isDevelopment) console.error(err);
-      });
-
-      if (!res?.ok) {
-        await sleepError();
-        continue;
-      }
-
-      return { success: true };
-    }
-  }
   async reportCC(data: string) {
     await GM_fetch(new URL("cc", apiURL), {
       method: "POST",

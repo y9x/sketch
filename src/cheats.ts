@@ -11,7 +11,6 @@ import { skinChangerHook, skinChangerClassPreviewHook } from "./cheats/skinChang
 import { spectatorsHook } from "./cheats/spectators";
 import { triggerbotHook } from "./cheats/triggerbot";
 import { watermarkHook } from "./cheats/watermark";
-import { analyticsHook } from "./cheats/analytics";
 import { playerEditorHook } from "./cheats/playerEditor";
 
 wsHook();
@@ -29,7 +28,6 @@ spectatorsHook();
 keybindOverlayHook();
 adblockHook();
 watermarkHook();
-analyticsHook();
 playerEditorHook();
 
 //sketchButton();
