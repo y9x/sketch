@@ -193,13 +193,13 @@ const tabs: Tab[] = [
             />
             <Switch
               title="Streamer Mode"
-              description="When enabled, the cheat will silently fail if there's an update, the access key expires, or the cheat isn't updated. To disable this setting, visit the Sketch guide and look for the 'Resetting Hide Updates/Key' section, which contains a link to disable the setting."
+              description="When enabled, the cheat will silently fail if there's an update or the cheat isn't updated. To disable this setting, reload with #showUpdates at the end of the URL."
               defaultChecked={silentFail}
               onChange={(event) => {
                 if (
                   !silentFail &&
                   !confirm(
-                    "Enabling this setting will require you to follow the Sketch guide to disable it if there's an update, the access key expires, or the cheat isn't updated. The cheat won't load if any of these occur, and you won't be able to re-enable this option without following the guide. Proceed?",
+                    "When enabled, Sketch won't show an update warning if the installed version or game support is outdated. Proceed?",
                   )
                 )
                   event.currentTarget.checked = false;

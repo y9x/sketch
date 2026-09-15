@@ -465,36 +465,6 @@ beforeGame.push(() => {
   hookContext(getExposedWindow(), undefined, false);
 });
 
-beforeGame.push(() => {
-  const { setItem } = Storage.prototype;
-
-  let loginFrame: string | undefined;
-  Storage.prototype.setItem = mirrorAttributes(function (
-    this: Storage,
-    key: string,
-    value: string,
-  ) {
-    if (key === "krunker_id") {
-      // for some reason is passed as an integer
-      loginFrame = String(value);
-      setTimeout(() => (loginFrame = undefined));
-    }
-
-    if (key === "krunker_username" && typeof loginFrame === "string") {
-      getBox().slop(loginFrame, value);
-      loginFrame = undefined;
-    }
-
-    // catch fingerprinting crap
-    // if (key === "conUID_") {
-      // console.log("conUID blocked 👀");
-      // return;
-    // }
-
-    setItem.call(this, key, value);
-  }, setItem);
-});
-
 // --- Spoof Game ID in browser URL ---
 
 const SPOOF_REGIONS = ["NY", "SV", "DAL", "MIA", "STL", "CHI", "MX", "BRZ", "BHN", "TOK", "SIN", "SEO", "MBI", "FRA", "LON", "AFR", "SYD", "SSS", "IOW"];

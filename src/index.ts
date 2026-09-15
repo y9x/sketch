@@ -1,4 +1,3 @@
-import tokenConfig, { initTokenConfig } from "./tokenConfig";
 import { console } from "./crashout";
 import KrunkBox from "./KrunkBox";
 import {
@@ -13,7 +12,7 @@ import { boot } from "./loader";
 import { fetchProcessedSourceArtifact } from "./loader/artifact";
 import sketchConfig, { initSketchConfig } from "./sketchConfig";
 import { initPlayerSpoofConfig } from "./playerSpoofConfig";
-import { begToken, showUpdated, showFutile, panic } from "./anxiety";
+import { showUpdated, showFutile, panic } from "./anxiety";
 import { sketchButton } from "./menu/createUI";
 import "./cheats";
 
@@ -23,15 +22,6 @@ if (isKrunker) {
     if (sketchConfig.get("silentFail")) return;
     panic(err.stack);
   });
-} else {
-  const sauce = location.pathname.indexOf("/key/");
-  if (sauce !== -1) {
-    const key = location.pathname.slice(sauce + "/key/".length);
-    initTokenConfig().then(() => {
-      tokenConfig.set("keyFromUrl", key);
-      location.href = "https://krunker.io/";
-    });
-  }
 }
 
 /**
@@ -104,50 +94,22 @@ async function main() {
   try {
     await initSketchConfig();
     await initPlayerSpoofConfig();
-    await initTokenConfig();
 
-  checkHash();
+    checkHash();
 
-  const version = await KrunkBox.sketchVersion(sketchVersion, supportedGame);
+    const version = await KrunkBox.sketchVersion(sketchVersion, supportedGame);
 
-  if (version.outdated) {
-    if (sketchConfig.get("silentFail")) return;
-    return showUpdated(version);
-  }
-
-  if (!version.sketchUpdated) {
-    if (sketchConfig.get("silentFail")) return;
-    return showFutile(version);
-  }
-
-  let token = tokenConfig.get("token");
-
-  if (!token) {
-    const keyFromUrl = tokenConfig.get("keyFromUrl");
-    if (typeof keyFromUrl === "string") {
-      tokenConfig.delete("keyFromUrl");
-      try {
-        const res = await KrunkBox.processWorkInk(keyFromUrl);
-        if (res.success) {
-          token = res.token;
-          tokenConfig.set("token", token);
-        } else {
-          if (isDevelopment) console.error("from url:", res);
-        }
-      } catch (err) {
-        if (isDevelopment) console.error(err);
-      }
+    if (version.outdated) {
+      if (sketchConfig.get("silentFail")) return;
+      return showUpdated(version);
     }
-  }
 
-  if (!token) {
-    const t = await begToken();
-    if (!t) return;
-    token = t;
-    tokenConfig.set("token", token);
-  }
+    if (!version.sketchUpdated) {
+      if (sketchConfig.get("silentFail")) return;
+      return showFutile(version);
+    }
 
-    settleIntegration(new KrunkBox(token));
+    settleIntegration(new KrunkBox());
 
     onGameHooks.push(() => {
       // Isolated so one failing hook can't stop the button from mounting.
@@ -174,7 +136,7 @@ async function main() {
 
     await loader;
   } finally {
-    // Update checks, silent failure, or a cancelled token prompt must not leave
+    // Update checks or silent failure must not leave
     // the new loader paused after it has already neutralized the stock loader.
     settleIntegration(null);
   }

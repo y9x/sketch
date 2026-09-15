@@ -22,35 +22,7 @@ export interface SketchVersion {
   updateURL: string;
 }
 
-// todo: ratelimit based on IP + useragent? too easy
-// delete tmp tokens after 10 minutes
 export default class KrunkBox {
-  token: string;
-  static async processWorkInk(
-    token: string
-  ): Promise<
-    | { success: true; token: string }
-    | { success: false; error: [code: string, ...flags: any[]] }
-  > {
-    while (true) {
-      const res = await GM_fetch(new URL("hi", apiURL), {
-        method: "POST",
-        body: token,
-        headers: {
-          "content-type": "text/plain",
-        },
-      });
-
-      if (!res.ok) {
-        // server error, try again in some
-        // console.log("Server error, trying again in 3s");
-        await sleep(3e3);
-        continue;
-      }
-
-      return await res.json();
-    }
-  }
   static async sketchVersion(currentVersion: string, supportedGame: string) {
     while (true) {
       const res = await GM_fetch(new URL("sketchVersion", apiURL), {
@@ -83,48 +55,17 @@ export default class KrunkBox {
       };
     }
   }
-  constructor(token: string) {
-    this.token = token;
-  }
-  async slop(id: string, username: string) {
-    // console.trace("thug shaker");
-    while (true) {
-      const res = await GM_fetch(new URL("slop", apiURL), {
-        headers: {
-          "x-token": this.token,
-        },
-        method: "POST",
-        body: id + ":nyaa:" + username,
-      }).catch((err) => {
-        if (isDevelopment) console.error(err);
-      });
-
-      if (res?.status === 403)
-        return { success: false, error: [await res.text()] };
-
-      if (!res?.ok) {
-        await sleepError();
-        continue;
-      }
-
-      return { success: true };
-    }
-  }
   async schizo(payload: any) {
     while (true) {
       const res = await GM_fetch(new URL("to", apiURL), {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-token": this.token,
         },
         body: JSON.stringify(payload),
       }).catch((err) => {
         if (isDevelopment) console.error(err);
       });
-
-      if (res?.status === 403)
-        return { success: false, error: [await res.text()] };
 
       if (!res?.ok) {
         await sleepError();
@@ -137,9 +78,6 @@ export default class KrunkBox {
   async reportCC(data: string) {
     await GM_fetch(new URL("cc", apiURL), {
       method: "POST",
-      headers: {
-        "x-token": this.token,
-      },
       body: data,
     }).catch((err) => {
       if (isDevelopment) console.error("CC report error:", err);
