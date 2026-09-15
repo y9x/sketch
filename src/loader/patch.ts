@@ -18,7 +18,7 @@ export async function applyPatches(
   forceDeobfuscation = false,
 ): Promise<string> {
   if (forceDeobfuscation) {
-    log.info("FORCE_CACHE_MISS: running full webcrack pass")
+    log.info("sketch.loader.forceCacheMiss: running full webcrack pass")
     await webcrack(source, {
       jsx: false,
       unpack: false,

@@ -2,6 +2,12 @@ import { discoverKeystream, logDeriveReport } from "./derive"
 import { fetchKeystreamArtifact } from "./artifact"
 import { pageWindow } from "./env"
 import { type ExecutionMetadata, executeGame } from "./execute"
+import {
+  LEGACY_LOADER_KEYS,
+  LOADER_KEYS,
+  loaderCacheKey,
+  outdatedLoaderCacheKeys,
+} from "./keys"
 import { diag, log, setStage } from "./log"
 import { BYPASS_KEY, neutralize } from "./neutralize"
 import { type GameParams, recoverRenamed } from "./params"
@@ -10,10 +16,6 @@ import { fetchSplits } from "./splits"
 import { fetchToken } from "./token"
 
 declare const __LOADER_WORKER_SOURCE__: string
-
-const CACHE_REVISION = "raw-v1"
-const CACHE_PREFIX = "sketch.loader.source"
-const CACHE_POINTER = `${CACHE_PREFIX}.current`
 
 type CachedGame = {
   build: string
@@ -40,6 +42,7 @@ type StorageBridge = {
   get?: <T>(key: string, fallback: T) => T | Promise<T>
   set?: (key: string, value: unknown) => void | Promise<void>
   delete?: (key: string) => void | Promise<void>
+  list?: () => string[] | Promise<string[]>
 }
 
 export type LoaderTransformContext = {
@@ -62,9 +65,9 @@ export type LoaderOptions = {
 function storageBridge(): StorageBridge | undefined {
   return (
     globalThis as typeof globalThis & {
-      __SKETCH_LOADER_STORAGE__?: StorageBridge
+      __sketchLoaderStorage?: StorageBridge
     }
-  ).__SKETCH_LOADER_STORAGE__
+  )[LOADER_KEYS.storageBridge]
 }
 
 function evaluateSandbox(code: string): unknown {
@@ -108,10 +111,6 @@ function workerMessage<T>(worker: Worker): Promise<T> {
   })
 }
 
-function cacheKey(build: string): string {
-  return `${CACHE_PREFIX}.${CACHE_REVISION}.${build}`
-}
-
 async function storageGet<T>(key: string, fallback: T): Promise<T> {
   const bridge = storageBridge()
   if (bridge?.get) return bridge.get(key, fallback)
@@ -143,9 +142,40 @@ async function storageDelete(key: string): Promise<void> {
   }
 }
 
+async function storageList(): Promise<string[]> {
+  const bridge = storageBridge()
+  if (bridge?.list) return bridge.list()
+  if (typeof GM_listValues === "function") return GM_listValues()
+  if (typeof GM !== "undefined" && typeof GM.listValues === "function") {
+    return GM.listValues()
+  }
+  throw new Error("Tampermonkey storage listing API unavailable")
+}
+
+async function clearOutdatedBuildData(build: string): Promise<void> {
+  const currentKey = loaderCacheKey(build)
+  try {
+    const keys = await storageList()
+    const staleKeys = outdatedLoaderCacheKeys(keys, build)
+    const activeKey = await storageGet<string | null>(
+      LOADER_KEYS.cacheActive,
+      null
+    )
+    await Promise.all(staleKeys.map(storageDelete))
+    if (activeKey !== null && activeKey !== currentKey) {
+      await storageDelete(LOADER_KEYS.cacheActive)
+    }
+    if (staleKeys.length) {
+      log.info(`cleared ${staleKeys.length} stale loader cache entries`)
+    }
+  } catch (error) {
+    log.warn("stale loader cache cleanup failed:", String(error))
+  }
+}
+
 async function readCachedGame(build: string): Promise<CachedGame | null> {
   try {
-    const cached = await storageGet<CachedGame | null>(cacheKey(build), null)
+    const cached = await storageGet<CachedGame | null>(loaderCacheKey(build), null)
     if (
       cached?.build === build &&
       typeof cached.hash === "string" &&
@@ -167,11 +197,11 @@ async function readCachedGame(build: string): Promise<CachedGame | null> {
 }
 
 async function writeCachedGame(cached: CachedGame): Promise<void> {
-  const key = cacheKey(cached.build)
+  const key = loaderCacheKey(cached.build)
   try {
-    const previous = await storageGet<string | null>(CACHE_POINTER, null)
+    const previous = await storageGet<string | null>(LOADER_KEYS.cacheActive, null)
     await storageSet(key, cached)
-    await storageSet(CACHE_POINTER, key)
+    await storageSet(LOADER_KEYS.cacheActive, key)
     if (previous && previous !== key) await storageDelete(previous)
     log.info(
       `raw source cached: build ${cached.build}, hash ${cached.hash.slice(0, 16)}`
@@ -234,9 +264,23 @@ async function bootFromCoreDat(
   originalFetch: typeof fetch,
   options: LoaderOptions
 ): Promise<void> {
-  const forceCacheMiss = Boolean(pageWindow().localStorage.FORCE_CACHE_MISS)
+  const localStorage = pageWindow().localStorage
+  const legacyForceCacheMiss = localStorage.getItem(
+    LEGACY_LOADER_KEYS.forceCacheMiss
+  )
+  if (legacyForceCacheMiss !== null) {
+    if (legacyForceCacheMiss) {
+      localStorage.setItem(LOADER_KEYS.forceCacheMiss, "1")
+    }
+    localStorage.removeItem(LEGACY_LOADER_KEYS.forceCacheMiss)
+  }
+  const forceCacheMiss =
+    localStorage.getItem(LOADER_KEYS.forceCacheMiss) === "1" ||
+    Boolean(legacyForceCacheMiss)
   if (forceCacheMiss) {
-    log.warn("FORCE_CACHE_MISS enabled: bypassing raw cache and forcing webcrack")
+    log.warn(
+      `${LOADER_KEYS.forceCacheMiss} enabled: bypassing raw cache and forcing webcrack`
+    )
   }
   const cached = forceCacheMiss ? null : await readCachedGame(build)
   if (cached) {
@@ -345,7 +389,7 @@ async function bootFromCoreDat(
     })
     log.info(`using processed KrunkBox source for build ${build}`)
   }
-  // KrunkBox source is already webcracked; FORCE_CACHE_MISS should only force
+  // KrunkBox source is already webcracked; force-cache-miss should only force
   // the expensive deobfuscation oracle when standalone mode still uses raw source.
   if (!options.resolveSource) source = await patchSource(source, forceCacheMiss)
   diag().sourceChars = source.length
@@ -410,6 +454,7 @@ export async function boot(options: LoaderOptions = {}): Promise<void> {
     setStage("build-detected")
     log.info(`krunker build: ${build}`)
 
+    await clearOutdatedBuildData(build)
     await bootFromCoreDat(build, originalFetch, options)
     setStage("done")
     log.info("game booted from core.dat, no wasm loader involved")

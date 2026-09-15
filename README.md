@@ -110,7 +110,9 @@ Sketch works around that in five stages:
    the current build's keystream artifact from KrunkBox.
 2. **Decrypt and cache** — the loader worker decrypts and Brotli-decompresses
    the bundle. It caches only raw source by build/hash; patched copies are
-   disposable. `localStorage.FORCE_CACHE_MISS` forces the complete path.
+   disposable. `localStorage["sketch.loader.forceCacheMiss"] = "1"` forces the
+   complete path. Loader cache keys are build-scoped, and stale build entries
+   are removed automatically when a new game build is detected.
 3. **Patch** — `src/filters.ts` applies a small set of regexes that splice
    `data.capture*(this)` calls next to stable, non-obfuscated string literals in
    the bundle (`'clearSkyDome'`, `'isServer'`, `'hideNames'`,

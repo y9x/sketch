@@ -12,13 +12,18 @@ const legacyDelete =
   typeof GM_deleteValue === "function"
     ? GM_deleteValue.bind(globalThis)
     : undefined;
+const legacyList =
+  typeof GM_listValues === "function"
+    ? GM_listValues.bind(globalThis)
+    : undefined;
 
-Object.defineProperty(globalThis, "__SKETCH_LOADER_STORAGE__", {
+Object.defineProperty(globalThis, "__sketchLoaderStorage", {
   configurable: true,
   value: {
     get: legacyGet,
     set: legacySet,
     delete: legacyDelete,
+    list: legacyList,
   },
 });
 

@@ -48,7 +48,9 @@ Read these files in order; they are the whole load path.
   `core.dat` splits and the matchmaking token, uses the KrunkBox keystream
   artifact (with WASM recovery fallback), and owns source execution.
 3. **`src/loader/worker.ts`** — decrypts/decompresses the bundle and maintains
-  the raw-source cache. `localStorage.FORCE_CACHE_MISS` bypasses this cache.
+  the raw-source cache. `localStorage["sketch.loader.forceCacheMiss"] = "1"`
+  bypasses this cache. Loader storage names are centralized in
+  `src/loader/keys.ts`; stale build caches are deleted after build detection.
 4. **`src/filters.ts`** — `hook` applies every entry in `patches` to the ~8.6M
    char obfuscated bundle. Also holds all runtime state, capture callbacks, and
    hook arrays. The biggest and most important file in the repo.

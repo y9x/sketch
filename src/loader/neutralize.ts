@@ -1,6 +1,7 @@
 import { buildIdFrom, detectBuildId } from "./buildId"
 import { pageWindow } from "./env"
 import { diag, log } from "./log"
+import { LOADER_KEYS } from "./keys"
 
 export type Interception = {
   build: Promise<string>
@@ -10,7 +11,7 @@ export type Interception = {
 }
 
 // Set before falling back so the next load skips us entirely.
-export const BYPASS_KEY = "sketch.loader.bypass"
+export const BYPASS_KEY = LOADER_KEYS.bypass
 
 const DETECT_TIMEOUT_MS = 15_000
 const DETECT_POLL_MS = 50

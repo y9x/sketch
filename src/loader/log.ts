@@ -1,4 +1,5 @@
 import type { WasmReport } from "./signature"
+import { LOADER_KEYS } from "./keys"
 
 type Stage =
   | "init"
@@ -64,7 +65,7 @@ const diagnostics: Diagnostics = {
 
 // Exposed so a user can inspect what the loader did from the devtools console.
 try {
-  ;(globalThis as Record<string, unknown>).__sketchLoader = diagnostics
+  ;(globalThis as Record<string, unknown>)[LOADER_KEYS.diagnostics] = diagnostics
 } catch {
   // Ignored: diagnostics are a convenience, not a requirement.
 }
