@@ -9,6 +9,10 @@
     "*://proxy.krunk.cc/*"
   ],
   "run-at": "document-start",
+  "connect": [
+    "kru.eli.gift",
+    "127.0.0.1"
+  ],
   "grant": [
     "unsafeWindow",
     "GM_xmlhttpRequest",

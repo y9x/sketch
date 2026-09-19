@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROXY = "http://127.0.0.1:8888";
-const KRUNKBOX = "http://127.0.0.1:3001/";
+const KRUNKBOX = process.env.KRUNKBOX_URL || "https://kru.eli.gift/";
 const TIMEOUT = Number(process.env.E2E_TIMEOUT ?? 120_000);
 
 async function main() {
@@ -69,13 +69,14 @@ async function main() {
           body: opts.data || opts.body || undefined,
           signal: ctrl.signal,
         }).then(async (res) => {
-          const text = await res.text();
+          const buffer = await res.arrayBuffer();
+          const text = new TextDecoder().decode(buffer);
           const resp = {
             status: res.status,
             statusText: res.statusText,
             responseHeaders: [...res.headers].map(([k,v]) => k+": "+v).join("\\r\\n"),
             responseText: text,
-            response: text,
+            response: opts.responseType === "arraybuffer" ? buffer : text,
             finalUrl: res.url,
           };
           if (opts.onload) opts.onload(resp);
