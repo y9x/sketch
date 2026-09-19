@@ -634,7 +634,26 @@ export function aimbotHook() {
     }
 
     const sb = sketchConfig.get("spinbot");
-    if (!sb || !doSpinbot) return;
+    const localPlayer = getLocalPlayer();
+    const lowerBody = localPlayer.lowerBody?.children[1];
+    const head = localPlayer.headObj;
+    const body = localPlayer.objInstances?.children[0];
+    const face = localPlayer.faceMesh;
+
+    if (!sb) {
+      if (lowerBody) lowerBody.rotation.x = 0;
+      if (head) head.rotation.x = 0;
+      if (body) body.rotation.y = 0;
+      if (face) face.rotation.x = 0;
+      return;
+    }
+
+    if (lowerBody) lowerBody.rotation.x = -1;
+    if (head) head.rotation.x = -1;
+    if (body) body.rotation.y = (spinCount / 7) * Math.PI * 2;
+    if (face) face.rotation.x = -1;
+
+    if (!doSpinbot) return;
 
     if (inputs[iInputs.moveDir] !== -1) {
       inputs[iInputs.moveDir] =
