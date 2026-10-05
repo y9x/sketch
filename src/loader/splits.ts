@@ -1,4 +1,7 @@
-export const SPLIT_COUNT = 8
+// Hard ceiling only — never the expected count. The real split count is
+// per-build and changes (8 on older builds, 10 on qJfFO/1QVCS); fetchSplits
+// below self-calibrates by stopping at the short final split.
+export const SPLIT_COUNT = 64
 
 const ATTEMPTS = 3
 const RETRY_DELAY_MS = 250
@@ -25,15 +28,34 @@ async function fetchSplit(
   throw lastError instanceof Error ? lastError : new Error(`${url} -> failed`)
 }
 
+// Returns true when a fetchSplit rejection looks like a genuine end-of-series
+// (HTTP 404) rather than a network/auth failure we should surface.
+function isEndOfSeries(error: unknown): boolean {
+  return error instanceof Error && /-> HTTP 404\b/.test(error.message)
+}
+
 export async function fetchSplits(
   build: string,
   fetchImpl: typeof fetch
 ): Promise<Uint8Array> {
-  const parts = await Promise.all(
-    Array.from({ length: SPLIT_COUNT }, (_unused, i) =>
-      fetchSplit(`/pkg/core.dat-${build}.split-${i}`, fetchImpl)
-    )
-  )
+  // split-0 is always a full split; its length is the reference "full" size.
+  const first = await fetchSplit(`/pkg/core.dat-${build}.split-0`, fetchImpl)
+  const fullSize = first.length
+  const parts: Uint8Array[] = [first]
+
+  // Pull splits until one is SHORTER than split-0 (the runt final split) or a
+  // 404 ends the series. The split count varies per build, so never assume it.
+  for (let i = 1; i < SPLIT_COUNT; i++) {
+    let part: Uint8Array
+    try {
+      part = await fetchSplit(`/pkg/core.dat-${build}.split-${i}`, fetchImpl)
+    } catch (error) {
+      if (isEndOfSeries(error)) break
+      throw error
+    }
+    parts.push(part)
+    if (part.length < fullSize) break
+  }
 
   let total = 0
   for (const p of parts) total += p.length

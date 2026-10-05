@@ -24,7 +24,13 @@ export interface SketchVersion {
 
 export default class KrunkBox {
   static async sketchVersion(currentVersion: string, supportedGame: string) {
-    while (true) {
+    // Never hang the loader on a version check. A persistently 425-ing or down
+    // server must not freeze the page forever: give up after a bounded number of
+    // attempts and throw. main()'s `finally` settles the integration with null,
+    // so the loader proceeds with the unpatched (stock) source instead of a hang.
+    const MAX_ATTEMPTS = 6;
+    let lastStatus = 0;
+    for (let attempt = 1; ; attempt++) {
       const res = await GM_fetch(new URL("sketchVersion", apiURL), {
         method: "POST",
         headers: {
@@ -36,23 +42,22 @@ export default class KrunkBox {
         if (isDevelopment) console.error("Bro", err);
       });
 
-      if (res?.status === 425) {
-        await sleepError();
-        continue;
+      if (res?.ok) {
+        const data = (await res.json()) as SketchVersion;
+        return {
+          ...data,
+          // we have to resolve it
+          updateURL: new URL(data.updateURL, apiURL).toString(),
+        };
       }
 
-      if (!res?.ok) {
-        await sleepError();
-        continue;
+      lastStatus = res?.status ?? 0;
+      if (attempt >= MAX_ATTEMPTS) {
+        throw new Error(
+          `sketchVersion unreachable after ${MAX_ATTEMPTS} attempts (last HTTP ${lastStatus}); continuing without integration`,
+        );
       }
-
-      const data = (await res.json()) as SketchVersion;
-
-      return {
-        ...data,
-        // we have to resolve it
-        updateURL: new URL(data.updateURL, apiURL).toString(),
-      };
+      await sleepError();
     }
   }
   async reportCC(data: string) {
