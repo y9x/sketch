@@ -20,6 +20,22 @@ function isBhoppable() {
   );
 }
 
+function runyvelBhop(
+  localPlayer: ReturnType<typeof getLocalPlayer>,
+  inputs: number[],
+) {
+  if (!sketchConfig.get("yvelBhop") || !inputs[iInputs.jump]) return;
+
+  const yVelocity = localPlayer.velocity?.y ?? 0;
+  if (yVelocity < 0) {
+    inputs[iInputs.crouch] = 1;
+    inputs[iInputs.jump] = 0;
+  } else {
+    inputs[iInputs.crouch] = 0;
+    inputs[iInputs.jump] = localPlayer.didJump ? 0 : 1;
+  }
+}
+
 export function bhopHook() {
   // value between -1 and 1 that determines the velocity to start slidehopping at
   // positive = going down
@@ -35,6 +51,7 @@ export function bhopHook() {
 
   inputHooks.push((inputs) => {
     const localPlayer = getLocalPlayer();
+    runyvelBhop(localPlayer, inputs);
 
     const oldBhop = sketchConfig.get("rampAccel");
     const autoSlide = sketchConfig.get("autoSlide");
@@ -108,6 +125,7 @@ export function bhopHook() {
 
 export function BhopMenu() {
   const [bhop, setBhop] = useSketchConfig("bhop");
+  const [yvelBhop, setyvelBhop] = useSketchConfig("yvelBhop");
   const [oldBhop, setOldBhop] = useSketchConfig("rampAccel");
   const [slidehop, setSlidehop] = useSketchConfig("slidehop");
   const [autoSlide, setAutoSlide] = useSketchConfig("autoSlide");
@@ -120,6 +138,12 @@ export function BhopMenu() {
         description="Hold space to bhop"
         defaultChecked={bhop}
         onChange={(event) => setBhop(event.currentTarget.checked)}
+      />
+      <Switch
+        title="Yvel Bhop"
+        description="Automatically jumps and crouches based on vertical velocity."
+        defaultChecked={yvelBhop}
+        onChange={(event) => setyvelBhop(event.currentTarget.checked)}
       />
       <Switch
         title="Slidehop"

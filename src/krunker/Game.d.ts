@@ -46,6 +46,7 @@ declare class Game {
   config: {
     thirdPerson?: boolean;
     fiRat?: number;
+    deltaMlt?: number;
     movDrP?: number;
   };
   isSandbox: boolean;

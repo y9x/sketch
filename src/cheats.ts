@@ -12,6 +12,8 @@ import { spectatorsHook } from "./cheats/spectators";
 import { triggerbotHook } from "./cheats/triggerbot";
 import { watermarkHook } from "./cheats/watermark";
 import { playerEditorHook } from "./cheats/playerEditor";
+import "./cheats/speedhack";
+import "./cheats/fpsDropper";
 
 wsHook();
 triggerbotHook();

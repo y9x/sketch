@@ -9,8 +9,8 @@ import { Switch } from "../krunker-ui/components/Switch";
 import { useSketchConfig } from "../sketchConfig";
 import { openSkinChangerWindow } from "./skinChanger";
 
-// v9.1.1
-const PLAYER_LEN = 50;
+// v10.0.0
+const PLAYER_LEN = 53;
 const MAX_HISTORY = 40;
 const STATIC_SECRET = [75, 82, 85, 78, 75, 51, 82, 95, 65, 67];
 
@@ -158,7 +158,11 @@ function applyLocalPlayerListSpoofs(packet: any) {
   if (packet?.[0] !== "0" || !packet?.[1] || !username) return;
 
   const allPlayers = packet[1];
-  if (!Array.isArray(allPlayers) || allPlayers.length % PLAYER_LEN !== 0) return;
+  if (
+    !Array.isArray(allPlayers) ||
+    allPlayers.length % PLAYER_LEN !== 0
+  )
+    return;
   const localEdit = getLocalPlayerEdit();
   if (!localEdit) return;
 

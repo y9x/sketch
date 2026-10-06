@@ -226,6 +226,7 @@ export declare class Player {
   onWall: number;
   wallJump: number; // bool
   onGround: boolean;
+  didJump?: boolean;
   airTime: number;
   crouchVal: number;
   x: number;
