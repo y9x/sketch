@@ -1640,11 +1640,16 @@ function spoofNameNodesIn(container: Element, reverseMode: boolean) {
       // Apply clan color to existing clan spans
       const wantsColor = edit.rainbowClan || edit.clanColor?.trim();
       if (wantsColor) {
-        const color = edit.rainbowClan ? sharedRainbowHexColor : edit.clanColor!.trim();
+        const isRainbow = edit.rainbowClan;
+        const color = isRainbow ? sharedRainbowHexColor : edit.clanColor!.trim();
         for (const span of Array.from(node.querySelectorAll<HTMLSpanElement>("span"))) {
           if (!/\[[^\]]+\]/.test(span.textContent ?? "")) continue;
           span.style.setProperty("color", color, "important");
-          span.setAttribute(rainbowClanMarkAttr, "1");
+          if (isRainbow) {
+            span.setAttribute(rainbowClanMarkAttr, "1");
+          } else {
+            span.removeAttribute(rainbowClanMarkAttr);
+          }
         }
       }
     }

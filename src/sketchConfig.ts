@@ -107,6 +107,7 @@ export interface SketchConfig {
   smoothFactor: number;
   drawFOV: boolean;
   targetOnAimKey: boolean;
+  yvelBhop: boolean;
   bhop: boolean;
   rampAccel: boolean;
   slidehop: boolean;
@@ -189,6 +190,12 @@ export interface SketchConfig {
   skinChanger: boolean;
   skinChangerSlots: Record<string, number>;
   skinChangerHairCol: string;
+  speedHack: boolean;
+  speedAmount: number;
+  speedKey: number;
+  fpsDropper: boolean;
+  fpsDropperValue: number;
+  fpsDropperKey: number;
 }
 
 /**
@@ -211,6 +218,7 @@ const defaultConfig: SketchConfig = {
   drawFOV: false,
   targetOnAimKey: false,
   bhop: false,
+  yvelBhop: false,
   rampAccel: false,
   slidehop: false,
   autoSlide: false,
@@ -277,6 +285,12 @@ const defaultConfig: SketchConfig = {
   skinChanger: false,
   skinChangerSlots: {},
   skinChangerHairCol: "",
+  speedHack: false,
+  speedAmount: 1.5,
+  speedKey: -1,
+  fpsDropper: false,
+  fpsDropperValue: 15,
+  fpsDropperKey: -1,
   aiEndpoint: "https://chat.openai.com/v1/chat/completions",
   aiKey: "",
   aiPrompt:

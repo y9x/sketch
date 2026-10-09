@@ -7,6 +7,8 @@ import { SkinHackMenu } from "../cheats/skins";
 import { SpectatorsMenu } from "../cheats/spectators";
 import { WatermarkMenu } from "../cheats/watermark";
 import { PlayerEditorMenu } from "../cheats/playerEditor";
+import { SpeedhackMenu } from "../cheats/speedhack";
+import { FpsDropperMenu } from "../cheats/fpsDropper";
 import { discordURL, docsURL, sketchVersion } from "../consts";
 import { getActiveMap, enableSpoofGameId, disableSpoofGameId } from "../filters";
 import sketchConfig, {
@@ -243,6 +245,8 @@ const tabs: Tab[] = [
           </HeadlessSet>
           <Set title="Movements">
             <BhopMenu />
+            <SpeedhackMenu />
+            <FpsDropperMenu />
           </Set>
         </>
       );
